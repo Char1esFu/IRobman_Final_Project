@@ -9,7 +9,7 @@ import open3d as o3d
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
-
+from src.rrt import RRTStarPlanner, RRTConnectPlanner
 
 
 def convert_depth_to_meters(depth_buffer, near, far):
@@ -223,7 +223,40 @@ def get_ee_camera_params(robot, config):
     
     return camera_pos, camera_R
 
-def generate_trajectory(start_joints, end_joints, steps=100):
+# for linear trajectory in Cartesian space
+def generate_easy_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, steps=100):
+    """
+    generate linear Cartesian trajectory in Cartesian space
+    """
+    # set start position
+    for i, joint_idx in enumerate(ik_solver.joint_indices):
+        p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
+    
+    # get current end-effector pose
+    start_pos, _ = ik_solver.get_current_ee_pose()
+    
+    # generate linear trajectory
+    trajectory = []
+    for step in range(steps + 1):
+        t = step / steps  # normalize step
+        
+        # linear interpolation
+        pos = start_pos + t * (target_pos - start_pos)
+        
+        # solve IK for current Cartesian position
+        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.01)
+        
+        # add solution to trajectory
+        trajectory.append(current_joints)
+        
+        # reset to start position
+        for i, joint_idx in enumerate(ik_solver.joint_indices):
+            p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
+    
+    return trajectory
+
+# for trajectory in joint space
+def generate_easy_trajectory(start_joints, end_joints, steps=100):
     """
     generate smooth trajectory from start to end joint positions
     
@@ -243,7 +276,136 @@ def generate_trajectory(start_joints, end_joints, steps=100):
         trajectory.append(point)
     return trajectory
 
-def run_point_cloud_visualization(config):
+
+
+# RRT planner
+#####################################################
+def create_planner(planner_type, robot_id, joint_indices, obstacle_ids=None, collision_fn=None):
+    """
+    create path planner
+    
+    Parameters:
+    -----------
+    planner_type: planner type, 'rrt_star' or 'rrt_connect'
+    robot_id: robot ID
+    joint_indices: list of controlled joint indices
+    obstacle_ids: list of obstacle IDs for collision checking
+    collision_fn: custom collision checking function
+    
+    Returns:
+    --------
+    planner instance
+    """
+    if planner_type.lower() == 'rrt_star':
+        return RRTStarPlanner(robot_id, joint_indices, obstacle_ids, collision_fn)
+    elif planner_type.lower() == 'rrt_connect':
+        return RRTConnectPlanner(robot_id, joint_indices, obstacle_ids, collision_fn)
+    else:
+        raise ValueError(f"Unknown planner type: {planner_type}")
+    
+# 下面是使用规划器的示例函数，可以替代原代码中的轨迹生成函数
+
+def plan_joint_trajectory(sim, start_joints, end_joints, 
+                          planner_type='rrt_connect', collision_objects=None, 
+                          max_iter=1000, step_size=0.05):
+    """
+    RRT planner for joint space trajectory planning
+    
+    Parameters:
+    -----------
+    sim: simulation environment object
+    start_joints: start joint positions
+    end_joints: end joint positions
+    planner_type: planner type, 'rrt_star' or 'rrt_connect'
+    collision_objects: list of collision object IDs
+    max_iter: maximum number of iterations
+    step_size: step size
+    
+    Returns:
+    --------
+    trajectory: list of joint positions
+    """
+    # 创建规划器
+    robot = sim.robot
+    robot_id = robot.id
+    joint_indices = [idx for idx in range(p.getNumJoints(robot_id)) if p.getJointInfo(robot_id, idx)[2] == p.JOINT_REVOLUTE]
+    
+    # 自定义碰撞检测函数
+    def check_collision():
+        # 检查与墙壁碰撞
+        if p.getContactPoints(robot_id, sim.wall):
+            return True
+            
+        # 检查与障碍物碰撞
+        if sim.obstacles_flag:
+            for obstacle in sim.obstacles:
+                if p.getContactPoints(robot_id, obstacle.id):
+                    return True
+                    
+        return False
+    
+    # 初始化规划器
+    planner = create_planner(planner_type, robot_id, joint_indices, collision_objects, check_collision)
+    
+    # 设置规划参数
+    planner.set_step_size(step_size)
+    
+    # 获取关节限位
+    joint_limits = []
+    for joint_idx in joint_indices:
+        info = p.getJointInfo(robot_id, joint_idx)
+        joint_limits.append((info[8], info[9]))  # (lower_limit, upper_limit)
+    planner.set_joint_limits(joint_limits)
+    
+    # 执行规划
+    print(f"Planning trajectory with {planner_type}...")
+    trajectory = planner.plan(start_joints, end_joints, max_iterations=max_iter)
+    
+    if trajectory:
+        print(f"Found trajectory with {len(trajectory)} waypoints")
+        return trajectory
+    else:
+        print("Failed to find trajectory. Using linear interpolation as fallback.")
+        return generate_easy_trajectory(start_joints, end_joints)
+    
+def plan_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, 
+                              planner_type='rrt_connect', steps=50):
+    """
+    在笛卡尔空间规划轨迹
+    
+    Parameters:
+    -----------
+    sim: 仿真环境对象
+    ik_solver: 逆运动学求解器
+    start_joints: 起始关节角度
+    target_pos: 目标位置
+    target_orn: 目标方向
+    planner_type: 规划器类型，'rrt_star'或'rrt_connect'
+    steps: 插值步数
+    
+    Returns:
+    --------
+    trajectory: 关节空间轨迹点列表
+    """
+    robot = sim.robot
+    robot_id = robot.id
+    
+    # 设置起始位置
+    for i, joint_idx in enumerate(ik_solver.joint_indices):
+        p.resetJointState(robot_id, joint_idx, start_joints[i])
+    
+    # 计算目标关节角度
+    print("Solving IK for target pose...")
+    end_joints = ik_solver.solve(target_pos, target_orn, start_joints, max_iters=50, tolerance=0.01)
+    
+    # 使用RRT规划关节空间路径
+    trajectory = plan_joint_trajectory(sim, start_joints, end_joints, planner_type)
+    
+    return trajectory
+#####################################################
+
+
+def run(config):
     """
     main function to run interactive point cloud visualization
     """
@@ -280,8 +442,10 @@ def run_point_cloud_visualization(config):
     for i, joint_idx in enumerate(ik_solver.joint_indices):
         p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
     
-    # linear interpolation between start and end joint positions, rrt or other path planning algorithms can be used    
-    trajectory = generate_trajectory(current_joints, new_joints, steps=100)
+    # different trajectory generation methods 
+    trajectory = generate_easy_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
+    # trajectory = generate_easy_trajectory(current_joints, new_joints, steps=100)
+    # trajectory = plan_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, planner_type='rrt_star', steps=100)
     # move robot along trajectory to target position
     for joint_target in trajectory:
         sim.robot.position_control(joint_target)
@@ -352,4 +516,4 @@ def run_point_cloud_visualization(config):
 if __name__ == "__main__":
     with open("configs/test_config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
-    run_point_cloud_visualization(config)
+    run(config)

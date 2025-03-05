@@ -7,10 +7,10 @@ import numpy as np
 import pybullet as p
 from typing import Dict, Any
 
-from pybullet_object_models import ycb_objects
-from src.ik_solver_shadow import DifferentialIKSolver
+from pybullet_object_models import ycb_objects  # type:ignore
+from src.ik_solver import DifferentialIKSolver
 from src.simulation import Simulation
-from src.rrt_planner import RRTStarConnect
+
 from src.obstacle_tracker import ObstacleTracker
 
 def run_exp(config: Dict[str, Any]):
@@ -45,10 +45,10 @@ def run_exp(config: Dict[str, Any]):
             print(f"Robot End Effector Position: {ee_pos}")
             print(f"Robot End Effector Orientation: {ee_ori}")
             
-            # 1. 获取起始配置(当前关节状态)
-            start_config = jpos.copy()  # 使用copy避免引用
+            # 获取起始配置(当前关节状态)
+            start_config = jpos.copy()
 
-            # 2. 获取目标位置
+            # 获取目标位置
             min_lim, max_lim = sim.goal._get_goal_lims()
             goal_pos = np.array([
                 (min_lim[0] + max_lim[0])/2,
@@ -59,7 +59,7 @@ def run_exp(config: Dict[str, Any]):
             goal_pos[0] -= 0.2
             goal_pos[1] -= 0.2
             
-            # 3. 可视化目标位置
+            # 3可视化目标位置
             if hasattr(sim, 'goal_visual_id'):
                 p.removeUserDebugItem(sim.goal_visual_id)
             sim.goal_visual_id = p.addUserDebugPoints(
@@ -67,47 +67,7 @@ def run_exp(config: Dict[str, Any]):
                 [[0, 1, 0]],  # 绿色
                 pointSize=6
             )
-
-            print(f"\nPlanning path from {ee_pos} to {goal_pos}")
-
-            # 4. 临时储存当前关节状态
-            original_joint_positions = sim.robot.get_joint_positions()
-
-            # 5. 求解目标IK
-            ik_solver = DifferentialIKSolver(
-                robot_id=sim.robot.id,          # 主要用于参数参考
-                ee_link_index=sim.robot.ee_idx,
-                damping=0.01,
-                use_shadow=True,                # 开启影子模式
-                urdf_path=config['robot_settings']['urdf'],  # 从配置中读取 URDF 路径
-                base_position=config['robot_settings']['default_init_pos'],         # 根据实际情况传入
-                use_fixed_base=True
-            )
             
-            goal_config = ik_solver.solve(
-                goal_pos,
-                p.getQuaternionFromEuler([0, np.pi, 0]),
-                original_joint_positions,
-                max_iters=50,  # 增加最大迭代次数
-                tolerance=0.01  # 降低误差容忍度
-            )
-
-            ik_solver.disconnect() 
-            
-            # 7. 初始化规划器并规划
-            planner = RRTStarConnect(
-                robot=sim.robot,
-                obstacle_tracker=tracker,
-                goal_region={'position': goal_pos},
-                step_size=0.05, 
-                neighbor_radius=0.5, 
-                goal_bias=0 
-            )
-
-            path = planner.plan(start_config, goal_config)
-            
-            # 8. 执行路径或原有循环
-            path_index = 0
             for i in range(10000):
                 # 获取障碍物预测位置
                 if tracker:
@@ -127,10 +87,6 @@ def run_exp(config: Dict[str, Any]):
                 
                 # 使用追踪数据
                 print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(pred_pos)}")
-                
-                if path is not None and path_index < len(path):
-                    sim.robot.position_control(path[path_index])
-                    path_index += 1
 
                 sim.step()
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
