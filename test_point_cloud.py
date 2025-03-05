@@ -223,6 +223,25 @@ def get_ee_camera_params(robot, config):
     
     return camera_pos, camera_R
 
+def generate_trajectory(start_joints, end_joints, steps=100):
+    """
+    generate smooth trajectory from start to end joint positions
+    
+    Parameters:
+    start_joints: start joint positions
+    end_joints: end joint positions
+    steps: number of steps for interpolation
+    
+    Returns:
+    trajectory: list of joint positions
+    """
+    trajectory = []
+    for step in range(steps + 1):
+        t = step / steps  # normalize step
+        # linear interpolation
+        point = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
+        trajectory.append(point)
+    return trajectory
 
 def run_point_cloud_visualization(config):
     """
@@ -250,21 +269,26 @@ def run_point_cloud_visualization(config):
     
     # get current joint positions
     current_joints = sim.robot.get_joint_positions()
+    # save current joint positions
+    saved_joints = current_joints.copy()
     
     # solve IK for target end-effector pose
     ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-    print("Solving IK for target end-effector pose ...")
     new_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
     
-    # move robot to new joint configuration
-    print("Moving robot to new joint configuration ...")
-    sim.robot.position_control(new_joints)
+    # reset to saved start position
+    for i, joint_idx in enumerate(ik_solver.joint_indices):
+        p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
     
-    # wait for robot to reach target position
-    for _ in range(5):
-        sim.step()
-        time.sleep(1/240.)
-    
+    # linear interpolation between start and end joint positions, rrt or other path planning algorithms can be used    
+    trajectory = generate_trajectory(current_joints, new_joints, steps=100)
+    # move robot along trajectory to target position
+    for joint_target in trajectory:
+        sim.robot.position_control(joint_target)
+        for _ in range(1):  
+            sim.step()
+            time.sleep(1/240.)  # 240 Hz
+            
     # 2. capture images from end-effector camera
     print("Capturing images from end-effector camera ...")
     rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
