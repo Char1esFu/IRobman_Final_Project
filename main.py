@@ -45,10 +45,10 @@ def run_exp(config: Dict[str, Any]):
             print(f"Robot End Effector Position: {ee_pos}")
             print(f"Robot End Effector Orientation: {ee_ori}")
             
-            # 1. 获取起始配置(当前关节状态)
-            start_config = jpos.copy()  # 使用copy避免引用
+            # 1. get start config (current joint state)
+            start_config = jpos.copy()
 
-            # 2. 获取目标位置
+            # 2. get goal position
             min_lim, max_lim = sim.goal._get_goal_lims()
             goal_pos = np.array([
                 (min_lim[0] + max_lim[0])/2,
@@ -58,40 +58,41 @@ def run_exp(config: Dict[str, Any]):
 
             goal_pos[0] -= 0.2
             goal_pos[1] -= 0.2
-            
-            # 3. 可视化目标位置
+            print(f"Goal Position: {goal_pos}")
+            # 3. visualize goal position
             if hasattr(sim, 'goal_visual_id'):
                 p.removeUserDebugItem(sim.goal_visual_id)
             sim.goal_visual_id = p.addUserDebugPoints(
                 [goal_pos],
-                [[0, 1, 0]],  # 绿色
+                [[0, 1, 0]],  # green
                 pointSize=6
             )
 
             print(f"\nPlanning path from {ee_pos} to {goal_pos}")
 
-            # 4. 临时储存当前关节状态
+            # 4.
             original_joint_positions = sim.robot.get_joint_positions()
+            print(f"Original Joint Positions: {original_joint_positions}")
 
-            # 5. 求解目标IK
+            # 5. solve IK for goal position
             ik_solver = DifferentialIKSolver(
                 robot_id=sim.robot.id,
                 ee_link_index=sim.robot.ee_idx,
-                damping=0.05  # 增大阻尼系数
+                damping=0.05
             )
             goal_config = ik_solver.solve(
                 goal_pos,
                 p.getQuaternionFromEuler([0, np.pi/2, np.pi/2]),
                 original_joint_positions,
-                max_iters=50,  # 增加最大迭代次数
-                tolerance=0.01  # 降低误差容忍度
+                max_iters=50,
+                tolerance=0.01
             )
 
-            # 6. 恢复初始关节状态
+            # 6.reset to original joint positions
             for idx, pos in zip(sim.robot.arm_idx, original_joint_positions):
                 p.resetJointState(sim.robot.id, idx, pos)
 
-            # 7. 初始化规划器并规划
+            # 7. initialize planner
             planner = RRTStarConnect(
                 robot=sim.robot,
                 obstacle_tracker=tracker,
@@ -103,26 +104,23 @@ def run_exp(config: Dict[str, Any]):
 
             path = planner.plan(start_config, goal_config)
             
-            # 8. 执行路径或原有循环
+            # 8. execute path
             path_index = 0
             for i in range(10000):
-                # 获取障碍物预测位置
                 if tracker:
-                    # 清除旧可视化
+                    # clear old visualization(debug lines)
                     if debug_ids:
                         for debug_id in debug_ids:
                             p.removeUserDebugItem(debug_id)
-                    
-                    # 更新追踪器
+                    # get obstacle prediction
                     rgb, depth, seg = sim.get_static_renders()
                     detected = tracker.detect_obstacles(rgb, depth, seg)
-                    
+                    # update tracker
                     pred_pos = tracker.update(detected)
                     debug_ids = tracker.visualize_tracking_3d(pred_pos)
                 else:
                     pred_pos = np.zeros((2, 3))
                 
-                # 使用追踪数据
                 print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(pred_pos)}")
                 
                 if path is not None and path_index < len(path):
