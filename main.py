@@ -10,7 +10,7 @@ from typing import Dict, Any
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.ik_solver import DifferentialIKSolver
 from src.simulation import Simulation
-from src.rrt_planner import RRTStarConnect
+from src.rrt_old import RRTStarConnect
 from src.obstacle_tracker import ObstacleTracker
 
 def run_exp(config: Dict[str, Any]):
