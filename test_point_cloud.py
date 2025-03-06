@@ -381,13 +381,7 @@ def run(config):
         goal_threshold=0.1,
         collision_check_step=0.05
     )
-    
-    # Ask user to choose trajectory generation method
-    print("\nChoose trajectory generation method:")
-    print("1. Linear Cartesian Trajectory")
-    print("2. Linear Joint Space Trajectory")
-    print("3. RRT* Collision-Free Trajectory")
-    
+        
     # For automation in this example, we'll choose RRT*
     choice = 2  # Change this to test different methods
     
