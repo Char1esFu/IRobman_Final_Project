@@ -12,6 +12,10 @@ from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 
+# Check if PyBullet has NumPy support enabled
+numpy_support = p.isNumpyEnabled()
+print(f"PyBullet NumPy support enabled: {numpy_support}")
+
 def convert_depth_to_meters(depth_buffer, near, far):
     """
     convert depth buffer values to actual distance (meters)
