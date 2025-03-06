@@ -219,7 +219,7 @@ def get_ee_camera_params(robot, config):
     return camera_pos, camera_R
 
 # for linear trajectory in Cartesian space
-def generate_easy_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, steps=100):
+def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, steps=100):
     """
     generate linear Cartesian trajectory in Cartesian space
     """
@@ -251,7 +251,7 @@ def generate_easy_cartesian_trajectory(sim, ik_solver, start_joints, target_pos,
     return trajectory
 
 # for trajectory in joint space
-def generate_easy_trajectory(start_joints, end_joints, steps=100):
+def generate_trajectory(start_joints, end_joints, steps=100):
     """
     generate smooth trajectory from start to end joint positions
     
@@ -388,10 +388,10 @@ def run(config):
     trajectory = []
     if choice == 1:
         print("Generating linear Cartesian trajectory...")
-        trajectory = generate_easy_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
+        trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
     elif choice == 2:
         print("Generating linear joint space trajectory...")
-        trajectory = generate_easy_trajectory(saved_joints, target_joints, steps=100)
+        trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
     else:
         print("Generating RRT* collision-free trajectory...")
         trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
