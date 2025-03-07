@@ -438,10 +438,10 @@ def run(config):
         trajectory = []
         if choice == 1:
             print("Generating linear Cartesian trajectory...")
-            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
+            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=50)
         elif choice == 2:
             print("Generating linear joint space trajectory...")
-            trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
+            trajectory = generate_trajectory(saved_joints, target_joints, steps=50)
         else:
             print("Generating RRT* trajectory...")
             trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
