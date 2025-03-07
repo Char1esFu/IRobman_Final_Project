@@ -29,7 +29,7 @@ def convert_depth_to_meters(depth_buffer, near, far):
     """
     return far * near / (far - (far - near) * depth_buffer)
 
-def get_intrinsic_matrix(width, height, fov):
+def get_camera_intrinsic(width, height, fov):
     """
     calculate intrinsic matrix from camera parameters
     
@@ -170,7 +170,7 @@ def build_object_point_cloud_ee(rgb, depth, seg, target_mask_id, config, camera_
     metric_depth = convert_depth_to_meters(depth, near, far)
     
     # get intrinsic matrix
-    intrinsic_matrix = get_intrinsic_matrix(width, height, fov)
+    intrinsic_matrix = get_camera_intrinsic(width, height, fov)
     
     # convert depth image to point cloud
     points_cam, colors = depth_image_to_point_cloud(metric_depth, object_mask, rgb, intrinsic_matrix)
@@ -397,7 +397,7 @@ def run(config):
         print("Generating linear joint space trajectory...")
         trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
     else:
-        print("Generating RRT* collision-free trajectory...")
+        print("Generating RRT* trajectory...")
         trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
     
     if not trajectory:
@@ -427,7 +427,6 @@ def run(config):
             time.sleep(1/240.)  # 240 Hz
             
     # 2. capture images from end-effector camera
-    print("Capturing images from end-effector camera ...")
     rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
     
     # get camera parameters
