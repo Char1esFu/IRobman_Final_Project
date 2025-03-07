@@ -112,7 +112,7 @@ def transform_points_to_world(points, camera_extrinsic):
     points_homogeneous = np.hstack((points, np.ones((points.shape[0], 1))))
     
     # transform point cloud using extrinsic matrix
-    world_points_homogeneous = np.dot(points_homogeneous, camera_extrinsic.T) # points in rows
+    world_points_homogeneous = (camera_extrinsic @ points_homogeneous.T).T # points in rows
     
     # convert back to non-homogeneous coordinates
     world_points = world_points_homogeneous[:, :3]
@@ -215,7 +215,7 @@ def get_ee_camera_params(robot, config):
     print("End effector camera orientation matrix:")
     print(ee_cam_R)
     # calculate camera position
-    camera_pos = ee_pos + ee_R @ ee_offset
+    camera_pos = ee_pos # why ee_pos + ee_R @ ee_offset will be wrong?
     
     # calculate camera rotation matrix
     camera_R = ee_R @ ee_cam_R
@@ -275,9 +275,6 @@ def generate_trajectory(start_joints, end_joints, steps=100):
         trajectory.append(point)
     return trajectory
 
-
-
-
 def generate_rrt_star_trajectory(sim, rrt_planner, start_joints, target_joints, visualize=True):
     """
     Generate a collision-free trajectory using RRT* planning.
@@ -323,11 +320,48 @@ def generate_rrt_star_trajectory(sim, rrt_planner, start_joints, target_joints, 
             
     return trajectory
 
+def visualize_point_clouds(collected_data, show_frames=True):
+    """
+    Visualize collected point clouds using Open3D
+    
+    Parameters:
+    collected_data: list of dictionaries containing point cloud data
+    show_frames: whether to show coordinate frames
+    """
+    if not collected_data:
+        print("No point cloud data to visualize")
+        return
+        
+    geometries = []
+    
+    # Add world coordinate frame
+    if show_frames:
+        coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
+        geometries.append(coord_frame)
+    
+    # Add each point cloud and its camera frame
+    for i, data in enumerate(collected_data):
+        if 'point_cloud' in data and data['point_cloud'] is not None:
+            # Add point cloud
+            geometries.append(data['point_cloud'])
+            
+            # Add camera frame
+            if show_frames:
+                camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+                camera_frame.translate(data['camera_position'])
+                camera_frame.rotate(data['camera_rotation'])
+                geometries.append(camera_frame)
+                
+            print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
+    
+    print("Launching Open3D visualization...")
+    o3d.visualization.draw_geometries(geometries)
+
 def run(config):
     """
-    main function to run interactive point cloud visualization
+    main function to run point cloud collection from multiple viewpoints
     """
-    print("Starting interactive point cloud visualization ...")
+    print("Starting point cloud collection ...")
     
     # initialize PyBullet simulation
     sim = Simulation(config)
@@ -336,154 +370,165 @@ def run(config):
     object_root_path = ycb_objects.getDataPath()
     files = glob.glob(os.path.join(object_root_path, "Ycb*"))
     obj_names = [os.path.basename(file) for file in files]
-    target_obj_name = random.choice(obj_names)
-    print(f"Resetting simulation with random object: {target_obj_name}")
+    # target_obj_name = random.choice(obj_names)
+    # print(f"Resetting simulation with random object: {target_obj_name}")
+    target_obj_name = "YcbMustardBottle"
     
     # reset simulation with target object
     sim.reset(target_obj_name)
-    time.sleep(1)  # wait for objects to settle
     
     # Initialize obstacle tracker
     obstacle_tracker = ObstacleTracker(n_obstacles=2, exp_settings=config)
     
-    # 1. Get initial static camera view to setup obstacle tracking
-    rgb_static, depth_static, seg_static = sim.get_static_renders()
+    # Initialize point cloud collection list
+    collected_data = []
     
-    # Detect and track obstacles
-    detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-    tracked_positions = obstacle_tracker.update(detections)
-            
-    # 1. move robot to target position
-    target_pos = np.array([-0.2, -0.45, 1.7])
-    target_orn = p.getQuaternionFromEuler([0, np.radians(135), 0])
+    # Define target positions and orientations
+    target_positions = [
+        np.array([0, -0.3, 1.7]),
+        np.array([-0.2, -0.55, 1.7]),
+        np.array([0.2, -0.55, 1.7]),
+    ]
+    target_orientations = [
+        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
+        p.getQuaternionFromEuler([np.radians(-150), np.radians(-30), 0]), 
+        p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0])
+    ]
     
-    # get current joint positions
-    current_joints = sim.robot.get_joint_positions()
-    # save current joint positions
-    saved_joints = current_joints.copy()
-    
-    # solve IK for target end-effector pose
-    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-    target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
-    
-    # reset to saved start position
-    for i, joint_idx in enumerate(ik_solver.joint_indices):
-        p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
-    
-    # Initialize RRT* planner
-    rrt_planner = RRTStarPlanner(
-        robot_id=sim.robot.id,
-        joint_indices=ik_solver.joint_indices,
-        lower_limits=sim.robot.lower_limits,
-        upper_limits=sim.robot.upper_limits,
-        ee_link_index=sim.robot.ee_idx,
-        obstacle_tracker=obstacle_tracker,
-        max_iterations=1000,
-        step_size=0.2,
-        goal_sample_rate=0.05,
-        search_radius=0.5,
-        goal_threshold=0.1,
-        collision_check_step=0.05
-    )
+    # For each viewpoint
+    for viewpoint_idx, (target_pos, target_orn) in enumerate(zip(target_positions, target_orientations)):
+        print(f"\nMoving to viewpoint {viewpoint_idx + 1}")
         
-    choice = 2  # Change this to test different methods
-    
-    trajectory = []
-    if choice == 1:
-        print("Generating linear Cartesian trajectory...")
-        trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
-    elif choice == 2:
-        print("Generating linear joint space trajectory...")
-        trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
-    else:
-        print("Generating RRT* trajectory...")
-        trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
-    
-    if not trajectory:
-        print("Failed to generate trajectory. Exiting...")
-        sim.close()
-        return
-    
-    print(f"Generated trajectory with {len(trajectory)} points")
-    
-    # move robot along trajectory to target position
-    for joint_target in trajectory:
-        # Update obstacle tracking with latest camera view
+        # Get initial static camera view to setup obstacle tracking
         rgb_static, depth_static, seg_static = sim.get_static_renders()
         detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
         tracked_positions = obstacle_tracker.update(detections)
         
-        # # Visualize tracked obstacles
-        # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
-        # if bounding_box:
-        #     for debug_line in bounding_box:
-        #         p.removeUserDebugItem(debug_line)
-
-        # Move robot
-        sim.robot.position_control(joint_target)
-        for _ in range(1): # range(x), x larger -> slower  
-            sim.step()
-            time.sleep(1/240.)  # 240 Hz
+        # Get current joint positions
+        current_joints = sim.robot.get_joint_positions()
+        # Save current joint positions
+        saved_joints = current_joints.copy()
+        
+        # Solve IK for target end-effector pose
+        ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+        target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
+        
+        # Reset to saved start position
+        for i, joint_idx in enumerate(ik_solver.joint_indices):
+            p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
+        
+        # Initialize RRT* planner
+        rrt_planner = RRTStarPlanner(
+            robot_id=sim.robot.id,
+            joint_indices=ik_solver.joint_indices,
+            lower_limits=sim.robot.lower_limits,
+            upper_limits=sim.robot.upper_limits,
+            ee_link_index=sim.robot.ee_idx,
+            obstacle_tracker=obstacle_tracker,
+            max_iterations=1000,
+            step_size=0.2,
+            goal_sample_rate=0.05,
+            search_radius=0.5,
+            goal_threshold=0.1,
+            collision_check_step=0.05
+        )
+        
+        choice = 1  # Change this to test different methods
+        
+        trajectory = []
+        if choice == 1:
+            print("Generating linear Cartesian trajectory...")
+            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
+        elif choice == 2:
+            print("Generating linear joint space trajectory...")
+            trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
+        else:
+            print("Generating RRT* trajectory...")
+            trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
+        
+        if not trajectory:
+            print(f"Failed to generate trajectory for viewpoint {viewpoint_idx + 1}. Skipping...")
+            continue
+        
+        print(f"Generated trajectory with {len(trajectory)} points")
+        
+        # Reset to saved start position again before executing trajectory
+        for i, joint_idx in enumerate(ik_solver.joint_indices):
+            p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
+        
+        # Move robot along trajectory to target position
+        for joint_target in trajectory:
+            # Update obstacle tracking
+            rgb_static, depth_static, seg_static = sim.get_static_renders()
+            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+            tracked_positions = obstacle_tracker.update(detections)
             
-    # 2. capture images from end-effector camera
-    rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
-    
-    # get camera parameters
-    camera_pos, camera_R = get_ee_camera_params(sim.robot, config)
-    print("Camera position in world frame:", camera_pos)
-    print("End effector position in world frame:", sim.robot.get_ee_pose()[0])
-    
-    # 3. build point cloud from end-effector camera data
-    target_mask_id = sim.object.id  # target object ID
-    print(f"Target object ID: {target_mask_id}")
-    
-    try:
-        # search for target object ID in segmentation mask
-        if target_mask_id not in np.unique(seg_ee):
-            print("Warning: Target object ID not found in segmentation mask.")
-            print("Available IDs in segmentation mask:", np.unique(seg_ee))
+            # Visualize tracked obstacles
+            # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
+            # if bounding_box:
+            #     for debug_line in bounding_box:
+            #         p.removeUserDebugItem(debug_line)
             
-            # use first non-zero ID as target mask ID
-            non_zero_ids = np.unique(seg_ee)[1:] if len(np.unique(seg_ee)) > 1 else []
-            if len(non_zero_ids) > 0:
-                target_mask_id = non_zero_ids[0]
-                print(f"Using first non-zero ID instead: {target_mask_id}")
-            else:
-                raise ValueError("No valid objects found in segmentation mask")
+            # Move robot
+            sim.robot.position_control(joint_target)
+            for _ in range(1):
+                sim.step()
+                time.sleep(1/240.)
         
-        pcd_ee = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
+        # Capture point cloud at this viewpoint
+        rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
+        camera_pos, camera_R = get_ee_camera_params(sim.robot, config)
+        print(f"Viewpoint {viewpoint_idx + 1} camera position:", camera_pos)
+        print(f"Viewpoint {viewpoint_idx + 1} end effector position:", sim.robot.get_ee_pose()[0])
         
-        # optional: downsample point cloud
-        pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
+        # Build point cloud
+        target_mask_id = sim.object.id
+        print(f"Target object ID: {target_mask_id}")
         
-        # optional: remove statistical outliers
-        pcd_ee, _ = pcd_ee.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-        
-    except ValueError as e:
-        print("Error building point cloud:", e)
-        pcd_ee = None
-    
-    # 4. visualize point cloud and camera position
-    # create world coordinate frame
-    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
-    
-    # create camera coordinate frame
-    camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-    camera_frame.translate(camera_pos)
-    camera_frame.rotate(camera_R)
-    
-    # show point cloud and camera frame
-    geometries = [coord_frame, camera_frame]
-    if pcd_ee is not None:
-        geometries.append(pcd_ee)
-        print(f"Point cloud created with {len(pcd_ee.points)} points.")
-    
-    print("Launching interactive Open3D visualization ...")
-    o3d.visualization.draw_geometries(geometries)
+        try:
+            if target_mask_id not in np.unique(seg_ee):
+                print("Warning: Target object ID not found in segmentation mask.")
+                print("Available IDs in segmentation mask:", np.unique(seg_ee))
+                
+                non_zero_ids = np.unique(seg_ee)[1:] if len(np.unique(seg_ee)) > 1 else []
+                if len(non_zero_ids) > 0:
+                    target_mask_id = non_zero_ids[0]
+                    print(f"Using first non-zero ID instead: {target_mask_id}")
+                else:
+                    raise ValueError("No valid objects found in segmentation mask")
+            
+            pcd_ee = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
+            
+            # Process point cloud
+            # pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
+            pcd_ee, _ = pcd_ee.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            
+            # Store point cloud data
+            point_cloud_data = {
+                'point_cloud': pcd_ee,
+                'camera_position': camera_pos,
+                'camera_rotation': camera_R,
+                'ee_position': sim.robot.get_ee_pose()[0],
+                'timestamp': time.time(),
+                'target_object': target_obj_name,
+                'viewpoint_idx': viewpoint_idx
+            }
+            collected_data.append(point_cloud_data)
+            print(f"Point cloud collected from viewpoint {viewpoint_idx + 1} with {len(pcd_ee.points)} points.")
+            
+        except ValueError as e:
+            print(f"Error building point cloud for viewpoint {viewpoint_idx + 1}:", e)
     
     sim.close()
+    return collected_data
 
 if __name__ == "__main__":
     with open("configs/test_config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
-    run(config)
+    # Run simulation and collect point clouds
+    collected_point_clouds = run(config)
+    print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
+    
+    # Visualize the collected point clouds if any were collected
+    if collected_point_clouds:
+        visualize_point_clouds(collected_point_clouds)
