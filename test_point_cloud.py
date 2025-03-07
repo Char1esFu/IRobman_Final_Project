@@ -386,7 +386,6 @@ def run(config):
         collision_check_step=0.05
     )
         
-    # For automation in this example, we'll choose RRT*
     choice = 2  # Change this to test different methods
     
     trajectory = []
