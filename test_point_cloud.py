@@ -385,9 +385,9 @@ def run(config):
     
     # Define target positions and orientations
     target_positions = [
-        np.array([0, -0.3, 1.7]),
-        np.array([-0.2, -0.55, 1.7]),
-        np.array([0.2, -0.55, 1.7]),
+        np.array([0, -0.3, 1.6]),
+        np.array([-0.2, -0.6, 1.6]),
+        np.array([0.2, -0.6, 1.6]),
     ]
     target_orientations = [
         p.getQuaternionFromEuler([np.radians(150), 0, 0]),
