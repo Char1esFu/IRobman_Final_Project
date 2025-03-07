@@ -212,11 +212,8 @@ def get_ee_camera_params(robot, config):
     ee_offset = np.array(cam_cfg["ee_cam_offset"])
     ee_cam_orn = cam_cfg["ee_cam_orientation"]
     ee_cam_R = np.array(p.getMatrixFromQuaternion(ee_cam_orn)).reshape(3, 3)
-    print("End effector camera orientation matrix:")
-    print(ee_cam_R)
     # calculate camera position
     camera_pos = ee_pos # why ee_pos + ee_R @ ee_offset will be wrong?
-    
     # calculate camera rotation matrix
     camera_R = ee_R @ ee_cam_R
     
@@ -357,6 +354,86 @@ def visualize_point_clouds(collected_data, show_frames=True):
     print("Launching Open3D visualization...")
     o3d.visualization.draw_geometries(geometries)
 
+def merge_point_clouds(collected_data):
+    """
+    Merge multiple point clouds using ICP registration
+    
+    Parameters:
+    collected_data: list of dictionaries containing point cloud data
+    
+    Returns:
+    merged_pcd: merged point cloud
+    """
+    if len(collected_data) < 2:
+        print("Need at least two point clouds for merging")
+        return None
+        
+    # use the first point cloud as the target point cloud
+    target_pcd = collected_data[0]['point_cloud']
+    merged_pcd = target_pcd
+    
+    # register each subsequent point cloud
+    for i in range(1, len(collected_data)):
+        source_pcd = collected_data[i]['point_cloud']
+        
+        # 1. first perform coarse registration
+        threshold_coarse = 0.01  # lower threshold
+        trans_init = np.eye(4)
+        
+        # 2. run multiple ICPs, select the best result
+        best_fitness = 0
+        best_result = None
+        
+        for _ in range(3):  # try multiple ICPs, select the best result
+            reg_p2p = o3d.pipelines.registration.registration_icp(
+                source_pcd, merged_pcd, 
+                threshold_coarse,
+                trans_init,
+                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                o3d.pipelines.registration.ICPConvergenceCriteria(
+                    relative_fitness=1e-8,  # stricter convergence criteria
+                    relative_rmse=1e-8,
+                    max_iteration=200  # increase iteration number
+                )
+            )
+            
+            if reg_p2p.fitness > best_fitness:
+                best_fitness = reg_p2p.fitness
+                best_result = reg_p2p
+        
+        # 3. use the best result for fine registration
+        threshold_fine = 0.005  # smaller threshold for fine registration
+        reg_p2p_fine = o3d.pipelines.registration.registration_icp(
+            source_pcd, merged_pcd,
+            threshold_fine,
+            best_result.transformation,  # use the result of coarse registration as the initial value
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(
+                relative_fitness=1e-10,
+                relative_rmse=1e-10,
+                max_iteration=300
+            )
+        )
+        
+        # 4. transform source point cloud
+        source_pcd.transform(reg_p2p_fine.transformation)
+        
+        # 5. merge point clouds
+        merged_pcd += source_pcd
+        
+        # remove outliers more strictly
+        merged_pcd, _ = merged_pcd.remove_statistical_outlier(
+            nb_neighbors=30,  # increase neighbor points
+            std_ratio=1.5    # lower standard deviation ratio
+        )
+        
+        print(f"Point cloud {i+1} registration completed")
+        print(f"Coarse registration fitness score: {best_result.fitness}")
+        print(f"Fine registration fitness score: {reg_p2p_fine.fitness}")
+        print(f"Fine registration RMSE: {reg_p2p_fine.inlier_rmse}")
+    
+    return merged_pcd
+
 def run(config):
     """
     main function to run point cloud collection from multiple viewpoints
@@ -433,15 +510,15 @@ def run(config):
             collision_check_step=0.05
         )
         
-        choice = 1  # Change this to test different methods
+        choice = 2  # Change this to test different methods
         
         trajectory = []
         if choice == 1:
             print("Generating linear Cartesian trajectory...")
-            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=50)
+            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
         elif choice == 2:
             print("Generating linear joint space trajectory...")
-            trajectory = generate_trajectory(saved_joints, target_joints, steps=50)
+            trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
         else:
             print("Generating RRT* trajectory...")
             trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
@@ -500,7 +577,7 @@ def run(config):
             pcd_ee = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
             
             # Process point cloud
-            # pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
+            pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
             pcd_ee, _ = pcd_ee.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
             
             # Store point cloud data
@@ -531,4 +608,20 @@ if __name__ == "__main__":
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
+        # # merge point clouds
+        # merged_cloud = merge_point_clouds(collected_point_clouds)
+        
+        # if merged_cloud is not None:
+        #     # create visualization geometries list
+        #     geometries = []
+            
+        #     # add world coordinate frame
+        #     coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
+        #     geometries.append(coord_frame)
+            
+        #     # add merged point cloud
+        #     geometries.append(merged_cloud)
+            
+        #     print("Launching Open3D visualization...")
+        #     o3d.visualization.draw_geometries(geometries)
         visualize_point_clouds(collected_point_clouds)
