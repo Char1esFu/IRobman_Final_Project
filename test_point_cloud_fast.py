@@ -10,7 +10,6 @@ from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
-from src.rrt_star import RRTStarPlanner
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
