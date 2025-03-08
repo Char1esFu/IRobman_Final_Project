@@ -317,13 +317,14 @@ def generate_rrt_star_trajectory(sim, rrt_planner, start_joints, target_joints, 
             
     return trajectory
 
-def visualize_point_clouds(collected_data, show_frames=True):
+def visualize_point_clouds(collected_data, show_frames=True, show_merged=True):
     """
     Visualize collected point clouds using Open3D
     
     Parameters:
     collected_data: list of dictionaries containing point cloud data
     show_frames: whether to show coordinate frames
+    show_merged: whether to show merged point cloud
     """
     if not collected_data:
         print("No point cloud data to visualize")
@@ -336,25 +337,34 @@ def visualize_point_clouds(collected_data, show_frames=True):
         coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
         geometries.append(coord_frame)
     
-    # Add each point cloud and its camera frame
-    for i, data in enumerate(collected_data):
-        if 'point_cloud' in data and data['point_cloud'] is not None:
-            # Add point cloud
-            geometries.append(data['point_cloud'])
-            
-            # Add camera frame
-            if show_frames:
-                camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-                camera_frame.translate(data['camera_position'])
-                camera_frame.rotate(data['camera_rotation'])
-                geometries.append(camera_frame)
+    if show_merged:
+        # Merge point clouds using ICP
+        print("Merging point clouds using ICP...")
+        merged_pcd = iterative_closest_point(collected_data)
+        if merged_pcd is not None:
+            # Keep original colors from point clouds
+            geometries.append(merged_pcd)
+            print(f"Added merged point cloud with {len(merged_pcd.points)} points")
+    else:
+        # Add each point cloud and its camera frame
+        for i, data in enumerate(collected_data):
+            if 'point_cloud' in data and data['point_cloud'] is not None:
+                # Add point cloud
+                geometries.append(data['point_cloud'])
                 
-            print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
+                # Add camera frame
+                if show_frames:
+                    camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+                    camera_frame.translate(data['camera_position'])
+                    camera_frame.rotate(data['camera_rotation'])
+                    geometries.append(camera_frame)
+                    
+                print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
     
     print("Launching Open3D visualization...")
     o3d.visualization.draw_geometries(geometries)
 
-def merge_point_clouds(collected_data):
+def iterative_closest_point(collected_data):
     """
     Merge multiple point clouds using ICP registration
     
@@ -364,73 +374,37 @@ def merge_point_clouds(collected_data):
     Returns:
     merged_pcd: merged point cloud
     """
-    if len(collected_data) < 2:
-        print("Need at least two point clouds for merging")
+    if not collected_data:
         return None
         
-    # use the first point cloud as the target point cloud
-    target_pcd = collected_data[0]['point_cloud']
-    merged_pcd = target_pcd
+    # Use the first point cloud as reference
+    merged_pcd = collected_data[0]['point_cloud']
     
-    # register each subsequent point cloud
+    # ICP parameters
+    threshold = 0.005  # distance threshold
+    trans_init = np.eye(4)  # initial transformation
+    
+    # Merge remaining point clouds
     for i in range(1, len(collected_data)):
-        source_pcd = collected_data[i]['point_cloud']
+        current_pcd = collected_data[i]['point_cloud']
         
-        # 1. first perform coarse registration
-        threshold_coarse = 0.01  # lower threshold
-        trans_init = np.eye(4)
-        
-        # 2. run multiple ICPs, select the best result
-        best_fitness = 0
-        best_result = None
-        
-        for _ in range(3):  # try multiple ICPs, select the best result
-            reg_p2p = o3d.pipelines.registration.registration_icp(
-                source_pcd, merged_pcd, 
-                threshold_coarse,
-                trans_init,
-                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-                o3d.pipelines.registration.ICPConvergenceCriteria(
-                    relative_fitness=1e-8,  # stricter convergence criteria
-                    relative_rmse=1e-8,
-                    max_iteration=200  # increase iteration number
-                )
-            )
-            
-            if reg_p2p.fitness > best_fitness:
-                best_fitness = reg_p2p.fitness
-                best_result = reg_p2p
-        
-        # 3. use the best result for fine registration
-        threshold_fine = 0.005  # smaller threshold for fine registration
-        reg_p2p_fine = o3d.pipelines.registration.registration_icp(
-            source_pcd, merged_pcd,
-            threshold_fine,
-            best_result.transformation,  # use the result of coarse registration as the initial value
+        # Perform ICP
+        reg_p2p = o3d.pipelines.registration.registration_icp(
+            current_pcd, merged_pcd, threshold, trans_init,
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(
-                relative_fitness=1e-10,
-                relative_rmse=1e-10,
-                max_iteration=300
-            )
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
         )
         
-        # 4. transform source point cloud
-        source_pcd.transform(reg_p2p_fine.transformation)
+        # Transform current point cloud
+        current_pcd.transform(reg_p2p.transformation)
         
-        # 5. merge point clouds
-        merged_pcd += source_pcd
+        # Merge point clouds
+        merged_pcd += current_pcd
         
-        # remove outliers more strictly
-        merged_pcd, _ = merged_pcd.remove_statistical_outlier(
-            nb_neighbors=30,  # increase neighbor points
-            std_ratio=1.5    # lower standard deviation ratio
-        )
+        # Optional: Remove duplicates using voxel downsampling
+        merged_pcd = merged_pcd.voxel_down_sample(voxel_size=0.005)
         
-        print(f"Point cloud {i+1} registration completed")
-        print(f"Coarse registration fitness score: {best_result.fitness}")
-        print(f"Fine registration fitness score: {reg_p2p_fine.fitness}")
-        print(f"Fine registration RMSE: {reg_p2p_fine.inlier_rmse}")
+        print(f"Merged point cloud {i+1}, fitness: {reg_p2p.fitness}")
     
     return merged_pcd
 
@@ -608,20 +582,10 @@ if __name__ == "__main__":
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
-        # # merge point clouds
-        # merged_cloud = merge_point_clouds(collected_point_clouds)
+        # First show individual point clouds
+        print("\nVisualizing individual point clouds...")
+        visualize_point_clouds(collected_point_clouds, show_merged=False)
         
-        # if merged_cloud is not None:
-        #     # create visualization geometries list
-        #     geometries = []
-            
-        #     # add world coordinate frame
-        #     coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
-        #     geometries.append(coord_frame)
-            
-        #     # add merged point cloud
-        #     geometries.append(merged_cloud)
-            
-        #     print("Launching Open3D visualization...")
-        #     o3d.visualization.draw_geometries(geometries)
-        visualize_point_clouds(collected_point_clouds)
+        # Then show merged point cloud
+        print("\nVisualizing merged point cloud...")
+        visualize_point_clouds(collected_point_clouds, show_merged=True)
