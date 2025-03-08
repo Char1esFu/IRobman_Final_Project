@@ -376,15 +376,27 @@ def run(config):
     
     # Define target positions and orientations
     target_positions = [
+        # 3 viewpoints
         np.array([-0.015, -0.3, 1.6]),
         np.array([-0.215, -0.6, 1.6]),
         np.array([0.185, -0.6, 1.6]),
+        # 4 viewpoints
+        # np.array([-0.02, -0.3, 1.6]),
+        # np.array([-0.02, -0.6, 1.6]),
+        # np.array([-0.22, -0.45, 1.6]),
+        # np.array([0.18, -0.45, 1.6]),
 
     ]
     target_orientations = [
+        # 3 viewpoints
         p.getQuaternionFromEuler([np.radians(140), 0, 0]),
         p.getQuaternionFromEuler([np.radians(-150), np.radians(-30), 0]), 
         p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0]),
+        # 4 viewpoints
+        # p.getQuaternionFromEuler([np.radians(135), 0, 0]),
+        # p.getQuaternionFromEuler([np.radians(-135), 0, 0]),
+        # p.getQuaternionFromEuler([0, np.radians(135), 0]), 
+        # p.getQuaternionFromEuler([0, np.radians(-135), 0])
     ]
     
     # For each viewpoint
