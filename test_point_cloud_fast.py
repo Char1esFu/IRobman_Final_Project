@@ -219,13 +219,58 @@ def get_ee_camera_params(robot, config):
     
     return camera_pos, camera_R
 
-def visualize_point_clouds(collected_data, show_frames=True):
+def iterative_closest_point(collected_data):
+    """
+    Merge multiple point clouds using ICP registration
+    
+    Parameters:
+    collected_data: list of dictionaries containing point cloud data
+    
+    Returns:
+    merged_pcd: merged point cloud
+    """
+    if not collected_data:
+        return None
+        
+    # Use the first point cloud as reference
+    merged_pcd = collected_data[0]['point_cloud']
+    
+    # ICP parameters
+    threshold = 0.005  # distance threshold
+    trans_init = np.eye(4)  # initial transformation
+    
+    # Merge remaining point clouds
+    for i in range(1, len(collected_data)):
+        current_pcd = collected_data[i]['point_cloud']
+        
+        # Perform ICP
+        reg_p2p = o3d.pipelines.registration.registration_icp(
+            current_pcd, merged_pcd, threshold, trans_init,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
+        )
+        
+        # Transform current point cloud
+        current_pcd.transform(reg_p2p.transformation)
+        
+        # Merge point clouds
+        merged_pcd += current_pcd
+        
+        # Optional: Remove duplicates using voxel downsampling
+        merged_pcd = merged_pcd.voxel_down_sample(voxel_size=0.005)
+        
+        print(f"Merged point cloud {i+1}, fitness: {reg_p2p.fitness}")
+    
+    return merged_pcd
+
+def visualize_point_clouds(collected_data, show_frames=True, show_merged=True):
     """
     Visualize collected point clouds using Open3D
     
     Parameters:
     collected_data: list of dictionaries containing point cloud data
     show_frames: whether to show coordinate frames
+    show_merged: whether to show merged point cloud
     """
     if not collected_data:
         print("No point cloud data to visualize")
@@ -238,20 +283,29 @@ def visualize_point_clouds(collected_data, show_frames=True):
         coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
         geometries.append(coord_frame)
     
-    # Add each point cloud and its camera frame
-    for i, data in enumerate(collected_data):
-        if 'point_cloud' in data and data['point_cloud'] is not None:
-            # Add point cloud
-            geometries.append(data['point_cloud'])
-            
-            # Add camera frame
-            if show_frames:
-                camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-                camera_frame.translate(data['camera_position'])
-                camera_frame.rotate(data['camera_rotation'])
-                geometries.append(camera_frame)
+    if show_merged:
+        # Merge point clouds using ICP
+        print("Merging point clouds using ICP...")
+        merged_pcd = iterative_closest_point(collected_data)
+        if merged_pcd is not None:
+            # Keep original colors from point clouds
+            geometries.append(merged_pcd)
+            print(f"Added merged point cloud with {len(merged_pcd.points)} points")
+    else:
+        # Add each point cloud and its camera frame
+        for i, data in enumerate(collected_data):
+            if 'point_cloud' in data and data['point_cloud'] is not None:
+                # Add point cloud
+                geometries.append(data['point_cloud'])
                 
-            print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
+                # Add camera frame
+                if show_frames:
+                    camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+                    camera_frame.translate(data['camera_position'])
+                    camera_frame.rotate(data['camera_rotation'])
+                    geometries.append(camera_frame)
+                    
+                print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
     
     print("Launching Open3D visualization...")
     o3d.visualization.draw_geometries(geometries)
@@ -276,7 +330,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbGelatinBox" 
+    target_obj_name = "YcbHammer" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -366,7 +420,7 @@ def run(config):
             pcd_ee = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
             
             # Process point cloud
-            # pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
+            pcd_ee = pcd_ee.voxel_down_sample(voxel_size=0.005)
             pcd_ee, _ = pcd_ee.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
             
             # Store point cloud data
@@ -397,4 +451,10 @@ if __name__ == "__main__":
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
-        visualize_point_clouds(collected_point_clouds)
+        # First show individual point clouds
+        print("\nVisualizing individual point clouds...")
+        visualize_point_clouds(collected_point_clouds, show_merged=False)
+        
+        # Then show merged point cloud
+        print("\nVisualizing merged point cloud...")
+        visualize_point_clouds(collected_point_clouds, show_merged=True)
