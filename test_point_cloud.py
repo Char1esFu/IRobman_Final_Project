@@ -423,7 +423,12 @@ def run(config):
     obj_names = [os.path.basename(file) for file in files]
     # target_obj_name = random.choice(obj_names)
     # print(f"Resetting simulation with random object: {target_obj_name}")
-    target_obj_name = "YcbMustardBottle"
+    # All objects: 
+    # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
+    # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
+    # High objects: YcbCrackerBox, YcbMustardBottle, 
+    # Unstable objects: YcbChipsCan， YcbPowerDrill
+    target_obj_name = "YcbTennisBall" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -484,7 +489,7 @@ def run(config):
             collision_check_step=0.05
         )
         
-        choice = 2  # Change this to test different methods
+        choice = 3  # Change this to test different methods
         
         trajectory = []
         if choice == 1:
