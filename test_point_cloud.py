@@ -470,13 +470,14 @@ def run(config):
         target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
         
         # Reset to saved start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
         
         # Initialize RRT* planner
         rrt_planner = RRTStarPlanner(
             robot_id=sim.robot.id,
-            joint_indices=ik_solver.joint_indices,
+            # joint_indices=ik_solver.joint_indices,
+            joint_indices=sim.robot.arm_idx,
             lower_limits=sim.robot.lower_limits,
             upper_limits=sim.robot.upper_limits,
             ee_link_index=sim.robot.ee_idx,
@@ -509,7 +510,7 @@ def run(config):
         print(f"Generated trajectory with {len(trajectory)} points")
         
         # Reset to saved start position again before executing trajectory
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
         
         # Move robot along trajectory to target position
