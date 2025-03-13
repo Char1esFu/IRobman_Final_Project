@@ -469,7 +469,7 @@ def solve_ik_pybullet(robot_id, ee_idx, target_pos, target_orn, joint_indices):
         ee_idx,
         target_pos,
         target_orn,
-        maxNumIterations=100,
+        maxNumIterations=1000,
         residualThreshold=0.001
     )
     
