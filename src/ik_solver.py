@@ -59,7 +59,7 @@ class DifferentialIKSolver:
             
         return jac
 
-    def solve(self, target_pos, target_orn, current_joint_positions, max_iters=50, tolerance=1e-2):
+    def solve(self, target_pos, target_orn, current_joint_positions, max_iters=50, tolerance=1e-3):
         """solve IK"""
         current_joints = np.array(current_joint_positions)
         
