@@ -484,7 +484,7 @@ def run(config):
         for joint_target in high_point_trajectory:
             # sim.get_ee_renders()
             sim.robot.position_control(joint_target)
-            for _ in range(1):
+            for _ in range(5):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -687,7 +687,7 @@ def run(config):
             
             # Move robot
             sim.robot.position_control(joint_target)
-            for _ in range(1):
+            for _ in range(5):
                 sim.step()
                 time.sleep(1/240.)
         
