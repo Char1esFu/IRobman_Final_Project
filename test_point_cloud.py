@@ -225,11 +225,13 @@ def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, targ
     generate linear Cartesian trajectory in Cartesian space
     """
     # set start position
-    for i, joint_idx in enumerate(ik_solver.joint_indices):
+    for i, joint_idx in enumerate(sim.robot.arm_idx):
         p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     # get current end-effector pose
-    start_pos, _ = ik_solver.get_current_ee_pose()
+    ee_state = p.getLinkState(sim.robot.id, sim.robot.ee_idx)
+    print(f"ee_state_0={np.array(ee_state[0])}, ee_state_1={np.array(ee_state[1])}")
+    start_pos = np.array(ee_state[0])
     
     # generate linear trajectory
     trajectory = []
@@ -240,13 +242,13 @@ def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, targ
         pos = start_pos + t * (target_pos - start_pos)
         
         # solve IK for current Cartesian position
-        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.01)
+        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.001)
         
         # add solution to trajectory
         trajectory.append(current_joints)
         
         # reset to start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     return trajectory
@@ -467,7 +469,7 @@ def run(config):
         
         # Solve IK for target end-effector pose
         ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-        target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
+        target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.001)
         
         # Reset to saved start position
         for i, joint_idx in enumerate(sim.robot.arm_idx):
@@ -490,7 +492,7 @@ def run(config):
             collision_check_step=0.05
         )
         
-        choice = 3  # Change this to test different methods
+        choice = 1  # Change this to test different methods
         
         trajectory = []
         if choice == 1:

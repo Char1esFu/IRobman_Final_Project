@@ -8,7 +8,6 @@ import pybullet as p
 import open3d as o3d
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
-from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 
@@ -220,16 +219,18 @@ def get_ee_camera_params(robot, config):
     return camera_pos, camera_R
 
 # for linear trajectory in Cartesian space
-def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, steps=100):
+def generate_cartesian_trajectory(sim, start_joints, target_pos, target_orn, steps=100):
     """
     generate linear Cartesian trajectory in Cartesian space
     """
     # set start position
-    for i, joint_idx in enumerate(ik_solver.joint_indices):
+    for i, joint_idx in enumerate(sim.robot.arm_idx):
         p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     # get current end-effector pose
-    start_pos, _ = ik_solver.get_current_ee_pose()
+    ee_state = p.getLinkState(sim.robot.id, sim.robot.ee_idx)
+    print(f"ee_state_0={np.array(ee_state[0])}, ee_state_1={np.array(ee_state[1])}")
+    start_pos = np.array(ee_state[0])
     
     # generate linear trajectory
     trajectory = []
@@ -245,14 +246,14 @@ def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, targ
             sim.robot.ee_idx,
             pos,
             target_orn,
-            ik_solver.joint_indices
+            sim.robot.arm_idx
         )
         
         # add solution to trajectory
         trajectory.append(current_joints)
         
         # reset to start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     return trajectory
@@ -437,9 +438,9 @@ def solve_ik_pybullet(robot_id, ee_idx, target_pos, target_orn, joint_indices):
         maxNumIterations=100,
         residualThreshold=0.01
     )
-    print(joint_positions, [joint_positions[idx] for idx in range(len(joint_indices))])
+    # print(joint_positions, [joint_positions[idx] for idx in range(len(joint_indices))])
     # Only return the joint positions for the specified joint indices
-    # return [joint_positions[idx] for idx in range(len(joint_indices))]
+    return [joint_positions[idx] for idx in range(len(joint_indices))]
 
 def run(config):
     """
@@ -507,9 +508,6 @@ def run(config):
             sim.robot.arm_idx
         )
         
-        # Initialize DifferentialIKSolver for other functions that still need it
-        ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-        
         # Reset to saved start position
         for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
@@ -517,7 +515,6 @@ def run(config):
         # Initialize RRT* planner
         rrt_planner = RRTStarPlanner(
             robot_id=sim.robot.id,
-            # joint_indices=ik_solver.joint_indices,
             joint_indices=sim.robot.arm_idx,
             lower_limits=sim.robot.lower_limits,
             upper_limits=sim.robot.upper_limits,
@@ -536,7 +533,7 @@ def run(config):
         trajectory = []
         if choice == 1:
             print("Generating linear Cartesian trajectory...")
-            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
+            trajectory = generate_cartesian_trajectory(sim, saved_joints, target_pos, target_orn, steps=100)
         elif choice == 2:
             print("Generating linear joint space trajectory...")
             trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
