@@ -430,7 +430,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbGelatinBox" 
+    target_obj_name = "YcbPowerDrill" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -441,23 +441,173 @@ def run(config):
     # Initialize point cloud collection list
     collected_data = []
     
+    # 获取并保存仿真环境开始时的初始位置
+    initial_joints = sim.robot.get_joint_positions()
+    print("保存仿真环境初始关节位置")
+    
+    # 初始化物体高度变量，默认值
+    object_height_with_offset = 1.6
+    # 初始化物体质心坐标，默认值
+    object_centroid_x = -0.02
+    object_centroid_y = -0.45
+
+    pause_time = 2.0  # 停顿2秒
+    print(f"\n停顿 {pause_time} 秒...")
+    for _ in range(int(pause_time * 240)):  # 假设模拟频率为240Hz
+        sim.step()
+        time.sleep(1/240.)
+        
+    # ===== 移动到指定位置并获取点云 =====
+    print("\n移动到高点观察位置...")
+    # 定义高点观察位置和方向
+    z_observe_pos = np.array([-0.02, -0.45, 1.8])
+    z_observe_orn = p.getQuaternionFromEuler([0, np.radians(-180), 0])  # 向下看
+    
+    # 解算IK
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    high_point_target_joints = ik_solver.solve(z_observe_pos, z_observe_orn, initial_joints, max_iters=50, tolerance=0.001)
+    
+    # 生成轨迹
+    print("为高点观察位置生成轨迹...")
+    high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
+    
+    if not high_point_trajectory:
+        print("无法生成到高点观察位置的轨迹，跳过高点点云采集")
+    else:
+        print(f"生成了包含 {len(high_point_trajectory)} 个点的轨迹")
+        
+        # 重置到初始位置
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
+            p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
+        
+        # 沿轨迹移动机器人到高点
+        for joint_target in high_point_trajectory:
+            # sim.get_ee_renders()
+            sim.robot.position_control(joint_target)
+            for _ in range(1):
+                sim.step()
+                time.sleep(1/240.)
+        
+        # 在高点观察位置获取点云
+        rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
+        camera_pos, camera_R = get_ee_camera_params(sim.robot, config)
+        print(f"高点观察位置相机位置:", camera_pos)
+        print(f"高点观察位置末端执行器位置:", sim.robot.get_ee_pose()[0])
+        
+        # 构建点云
+        target_mask_id = sim.object.id
+        print(f"目标物体ID: {target_mask_id}")
+        
+        try:
+            if target_mask_id not in np.unique(seg_ee):
+                print("警告: 分割掩码中未找到目标物体ID")
+                print("分割掩码中可用的ID:", np.unique(seg_ee))
+                
+                non_zero_ids = np.unique(seg_ee)[1:] if len(np.unique(seg_ee)) > 1 else []
+                if len(non_zero_ids) > 0:
+                    target_mask_id = non_zero_ids[0]
+                    print(f"使用第一个非零ID代替: {target_mask_id}")
+                else:
+                    raise ValueError("分割掩码中没有找到有效物体")
+            
+            high_point_pcd = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
+            
+            # 处理点云
+            high_point_pcd = high_point_pcd.voxel_down_sample(voxel_size=0.005)
+            high_point_pcd, _ = high_point_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            
+            # 存储点云数据
+            high_point_cloud_data = {
+                'point_cloud': high_point_pcd,
+                'camera_position': camera_pos,
+                'camera_rotation': camera_R,
+                'ee_position': sim.robot.get_ee_pose()[0],
+                'timestamp': time.time(),
+                'target_object': target_obj_name,
+                'viewpoint_idx': 'high_point'
+            }
+            
+            # 获取点云中所有点的坐标
+            points_array = np.asarray(high_point_pcd.points)
+            if len(points_array) > 0:
+                # 找出z轴最大值点
+                max_z_idx = np.argmax(points_array[:, 2])
+                max_z_point = points_array[max_z_idx]
+                print(f"高点点云中z轴最大值点: {max_z_point}")
+                high_point_cloud_data['max_z_point'] = max_z_point
+                
+                # 提取z轴最大值，加上offset
+                object_max_z = max_z_point[2]
+                object_height_with_offset = max(object_max_z + 0.2,1.6)
+                print(f"物体高度加偏移量: {object_height_with_offset}")
+                
+                # 计算点云中所有点的x和y坐标质心
+                object_centroid_x = np.mean(points_array[:, 0])
+                object_centroid_y = np.mean(points_array[:, 1])
+                print(f"物体点云质心坐标 (x, y): ({object_centroid_x:.4f}, {object_centroid_y:.4f})")
+                high_point_cloud_data['centroid'] = np.array([object_centroid_x, object_centroid_y, 0])
+            else:
+                print("高点点云中没有点")
+            
+            # 可视化高点点云
+            print("\n可视化高点点云...")
+            visualize_point_clouds([high_point_cloud_data], show_merged=False)
+            
+            # 将高点点云添加到收集的数据中
+            collected_data.append(high_point_cloud_data)
+            print(f"从高点观察位置收集的点云有 {len(high_point_pcd.points)} 个点")
+            
+        except ValueError as e:
+            print(f"为高点观察位置构建点云时出错:", e)
+        
+        # 从高点回到初始位置
+        print("\n从高点回到初始位置...")
+        # 生成从高点回到初始位置的轨迹
+        return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
+        
+        if not return_trajectory:
+            print("无法生成回到初始位置的轨迹")
+        else:
+            print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
+            
+            # 沿轨迹移动机器人回到初始位置
+            for joint_target in return_trajectory:
+                sim.robot.position_control(joint_target)
+                for _ in range(1):
+                    sim.step()
+                    time.sleep(1/240.)
+            
+            print("已回到初始位置")
+    
+    # 确保机器人回到初始位置
+    for i, joint_idx in enumerate(sim.robot.arm_idx):
+        p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
+    
+    # ===== 原有的4个点云采集位置 =====
     # Define target positions and orientations
+    # 使用物体质心作为x和y的基准点，加上偏移量
     target_positions = [
         
-        np.array([0.18, -0.45, 1.6]),
-        np.array([-0.02, -0.3, 1.6]),
-        np.array([-0.22, -0.45, 1.6]),
-        np.array([-0.02, -0.6, 1.6])
+        np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
+        np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]),
+        np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]),
+        np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset])
         
     ]
     target_orientations = [
         
-        p.getQuaternionFromEuler([0, np.radians(-135), 0]),
-        p.getQuaternionFromEuler([np.radians(135), 0, 0]),
-        p.getQuaternionFromEuler([0, np.radians(135), 0]),
-        p.getQuaternionFromEuler([np.radians(-135), 0, 0])
+        p.getQuaternionFromEuler([0, np.radians(-150), 0]),
+        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
+        p.getQuaternionFromEuler([0, np.radians(150), 0]),
+        p.getQuaternionFromEuler([np.radians(-150), 0, 0])
         
     ]
+    
+    print(f"\n使用基于物体质心的采集位置:")
+    print(f"物体质心坐标 (x, y): ({object_centroid_x:.4f}, {object_centroid_y:.4f})")
+    print(f"物体高度加偏移量: {object_height_with_offset:.4f}")
+    for i, pos in enumerate(target_positions):
+        print(f"采集点 {i+1}: ({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f})")
     
     # For each viewpoint
     for viewpoint_idx, (target_pos, target_orn) in enumerate(zip(target_positions, target_orientations)):
@@ -523,7 +673,7 @@ def run(config):
         
         # Move robot along trajectory to target position
         for joint_target in trajectory:
-            sim.get_ee_renders()
+            # sim.get_ee_renders()
             # Update obstacle tracking
             # rgb_static, depth_static, seg_static = sim.get_static_renders()
             # detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
@@ -594,6 +744,11 @@ if __name__ == "__main__":
     # Run simulation and collect point clouds
     collected_point_clouds = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
+    
+    # 检查并打印高点点云的z轴最大值点
+    for data in collected_point_clouds:
+        if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
+            print(f"\n高点观察位置点云的z轴最大值点: {data['max_z_point']}")
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
