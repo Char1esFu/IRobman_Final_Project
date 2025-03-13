@@ -429,8 +429,8 @@ def run(config):
     # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
-    # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbPowerDrill" 
+    # Unstable objects: YcbChipsCan, YcbPowerDrill
+    target_obj_name = "YcbBanana" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -460,7 +460,7 @@ def run(config):
     # ===== 移动到指定位置并获取点云 =====
     print("\n移动到高点观察位置...")
     # 定义高点观察位置和方向
-    z_observe_pos = np.array([-0.02, -0.45, 1.8])
+    z_observe_pos = np.array([-0.02, -0.45, 1.9])
     z_observe_orn = p.getQuaternionFromEuler([0, np.radians(-180), 0])  # 向下看
     
     # 解算IK
@@ -538,7 +538,7 @@ def run(config):
                 
                 # 提取z轴最大值，加上offset
                 object_max_z = max_z_point[2]
-                object_height_with_offset = max(object_max_z + 0.2,1.6)
+                object_height_with_offset = max(object_max_z + 0.2, 1.65)
                 print(f"物体高度加偏移量: {object_height_with_offset}")
                 
                 # 计算点云中所有点的x和y坐标质心
@@ -560,28 +560,28 @@ def run(config):
         except ValueError as e:
             print(f"为高点观察位置构建点云时出错:", e)
         
-        # 从高点回到初始位置
-        print("\n从高点回到初始位置...")
-        # 生成从高点回到初始位置的轨迹
-        return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
+    #     # 从高点回到初始位置
+    #     print("\n从高点回到初始位置...")
+    #     # 生成从高点回到初始位置的轨迹
+    #     return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
         
-        if not return_trajectory:
-            print("无法生成回到初始位置的轨迹")
-        else:
-            print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
+    #     if not return_trajectory:
+    #         print("无法生成回到初始位置的轨迹")
+    #     else:
+    #         print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
             
-            # 沿轨迹移动机器人回到初始位置
-            for joint_target in return_trajectory:
-                sim.robot.position_control(joint_target)
-                for _ in range(1):
-                    sim.step()
-                    time.sleep(1/240.)
+    #         # 沿轨迹移动机器人回到初始位置
+    #         for joint_target in return_trajectory:
+    #             sim.robot.position_control(joint_target)
+    #             for _ in range(1):
+    #                 sim.step()
+    #                 time.sleep(1/240.)
             
-            print("已回到初始位置")
+    #         print("已回到初始位置")
     
-    # 确保机器人回到初始位置
-    for i, joint_idx in enumerate(sim.robot.arm_idx):
-        p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
+    # # 确保机器人回到初始位置
+    # for i, joint_idx in enumerate(sim.robot.arm_idx):
+    #     p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
     
     # ===== 原有的4个点云采集位置 =====
     # Define target positions and orientations
@@ -648,7 +648,7 @@ def run(config):
             collision_check_step=0.05
         )
         
-        choice = 1  # Change this to test different methods
+        choice = 2  # Change this to test different methods
         
         trajectory = []
         if choice == 1:
