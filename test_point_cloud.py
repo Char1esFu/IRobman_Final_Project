@@ -430,7 +430,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbTennisBall" 
+    target_obj_name = "YcbGelatinBox" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -443,24 +443,30 @@ def run(config):
     
     # Define target positions and orientations
     target_positions = [
-        np.array([0, -0.3, 1.6]),
-        np.array([-0.2, -0.6, 1.6]),
-        np.array([0.2, -0.6, 1.6]),
+        
+        np.array([0.18, -0.45, 1.6]),
+        np.array([-0.02, -0.3, 1.6]),
+        np.array([-0.22, -0.45, 1.6]),
+        np.array([-0.02, -0.6, 1.6])
+        
     ]
     target_orientations = [
-        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
-        p.getQuaternionFromEuler([np.radians(-150), np.radians(-30), 0]), 
-        p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0])
+        
+        p.getQuaternionFromEuler([0, np.radians(-135), 0]),
+        p.getQuaternionFromEuler([np.radians(135), 0, 0]),
+        p.getQuaternionFromEuler([0, np.radians(135), 0]),
+        p.getQuaternionFromEuler([np.radians(-135), 0, 0])
+        
     ]
     
     # For each viewpoint
     for viewpoint_idx, (target_pos, target_orn) in enumerate(zip(target_positions, target_orientations)):
         print(f"\nMoving to viewpoint {viewpoint_idx + 1}")
-        
+        sim.get_ee_renders()
         # Get initial static camera view to setup obstacle tracking
-        rgb_static, depth_static, seg_static = sim.get_static_renders()
-        detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-        tracked_positions = obstacle_tracker.update(detections)
+        # rgb_static, depth_static, seg_static = sim.get_static_renders()
+        # detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+        # tracked_positions = obstacle_tracker.update(detections)
         
         # Get current joint positions
         current_joints = sim.robot.get_joint_positions()
@@ -517,10 +523,11 @@ def run(config):
         
         # Move robot along trajectory to target position
         for joint_target in trajectory:
+            sim.get_ee_renders()
             # Update obstacle tracking
-            rgb_static, depth_static, seg_static = sim.get_static_renders()
-            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-            tracked_positions = obstacle_tracker.update(detections)
+            # rgb_static, depth_static, seg_static = sim.get_static_renders()
+            # detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+            # tracked_positions = obstacle_tracker.update(detections)
             
             # Visualize tracked obstacles
             # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
