@@ -415,6 +415,40 @@ def iterative_closest_point(collected_data):
     
     return merged_pcd
 
+def get_ik_error(robot_id, ee_idx, target_pos, target_orn, joint_positions, joint_indices):
+    """
+    计算IK解算结果的误差
+    
+    参数:
+    robot_id: 机器人ID
+    ee_idx: 末端执行器链接索引
+    target_pos: 目标位置
+    target_orn: 目标方向（四元数）
+    joint_positions: 关节角度
+    joint_indices: 关节索引列表
+    
+    返回:
+    pos_error: 位置误差
+    orn_error_norm: 方向误差
+    """
+    # 设置关节位置
+    for i, joint_idx in enumerate(joint_indices):
+        p.resetJointState(robot_id, joint_idx, joint_positions[i])
+    
+    # 获取当前末端执行器位置和方向
+    ee_state = p.getLinkState(robot_id, ee_idx)
+    current_pos = np.array(ee_state[0])
+    current_orn = np.array(ee_state[1])
+    
+    # 计算位置误差
+    pos_error = np.linalg.norm(target_pos - current_pos)
+    
+    # 计算方向误差
+    orn_error = np.array(p.getDifferenceQuaternion(current_orn.tolist(), target_orn)[:3])
+    orn_error_norm = np.linalg.norm(orn_error)
+    
+    return pos_error, orn_error_norm
+
 def solve_ik_pybullet(robot_id, ee_idx, target_pos, target_orn, joint_indices):
     """
     Use PyBullet's built-in IK solver
@@ -436,11 +470,25 @@ def solve_ik_pybullet(robot_id, ee_idx, target_pos, target_orn, joint_indices):
         target_pos,
         target_orn,
         maxNumIterations=100,
-        residualThreshold=0.01
+        residualThreshold=0.001
     )
-    # print(joint_positions, [joint_positions[idx] for idx in range(len(joint_indices))])
-    # Only return the joint positions for the specified joint indices
-    return [joint_positions[idx] for idx in range(len(joint_indices))]
+    
+    # 获取指定关节的位置
+    result_joints = [joint_positions[idx] for idx in range(len(joint_indices))]
+    
+    # 计算误差
+    pos_error, orn_error = get_ik_error(
+        robot_id, 
+        ee_idx, 
+        target_pos, 
+        target_orn, 
+        result_joints, 
+        joint_indices
+    )
+    
+    print(f"IK解算结果 - 位置误差: {pos_error:.6f}, 方向误差: {orn_error:.6f}")
+    
+    return result_joints
 
 def run(config):
     """
@@ -552,11 +600,12 @@ def run(config):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
         
         # Move robot along trajectory to target position
-        for joint_target in trajectory:
+        for i, joint_target in enumerate(trajectory):
             # Update obstacle tracking
-            rgb_static, depth_static, seg_static = sim.get_static_renders()
-            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-            tracked_positions = obstacle_tracker.update(detections)
+            if i % 10 == 0:
+                rgb_static, depth_static, seg_static = sim.get_static_renders()
+                detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = obstacle_tracker.update(detections)
             
             # Visualize tracked obstacles
             # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
