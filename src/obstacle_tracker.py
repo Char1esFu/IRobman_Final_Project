@@ -154,96 +154,87 @@ class ObstacleTracker:
         return base_radius
     
     def detect_obstacles(self, rgb, depth, seg):
-        """Detect red spheres using segmentation mask"""
+        """Detect obstacles using fixed segmentation mask IDs (6 and 7)"""
         detections = []
         potential_balls = []
         
-        # 1. find red objects in segmentation mask
-        for obj_id in np.unique(seg)[1:]:
-            mask = (seg == obj_id).astype(np.uint8)
-            masked_rgb = rgb * mask[..., None]
-            non_zero = masked_rgb[mask > 0]
-                
-            mean_color = np.mean(non_zero, axis=0)
-            r, g, b = mean_color[:3]
-            
-            # loosen the red color detection
-            is_red = (r > 150 and  # high R
-                    max(g, b) < r * 0.5 and  # G and B much lower than R
-                    abs(g - b) < 20)  # G and B close
-            
-            if not is_red:
+        # 固定的障碍物ID
+        obstacle_ids = [6, 7]
+        # print(f"\n使用固定的障碍物ID: {obstacle_ids}")
+        
+        # 直接处理固定ID的障碍物
+        for obj_id in obstacle_ids:
+            # 检查该ID是否存在于分割掩码中
+            if obj_id not in np.unique(seg):
+                print(f"警告: ID {obj_id} 不在当前分割掩码中")
                 continue
                 
-            # find contours
+            mask = (seg == obj_id).astype(np.uint8)
+            
+            # 找到轮廓
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if not contours:
+                print(f"警告: ID {obj_id} 没有找到有效轮廓")
+                continue
                 
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
-                    
-                # calc contour center
-                M = cv2.moments(contour)
-                cx = int(M['m10']/M['m00'])
-                cy = int(M['m01']/M['m00'])
+            # 使用最大的轮廓
+            contour = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(contour)
+            
+            # 计算轮廓中心
+            M = cv2.moments(contour)
+            if M['m00'] == 0:
+                print(f"警告: ID {obj_id} 的轮廓面积为零")
+                continue
                 
-                # check depth
-                depth_buffer = depth[cy, cx]
-                metric_depth = self.convert_depth_to_meters(depth_buffer)
-                
-                # calc radius
-                base_radius = self.calculate_metric_radius(area, metric_depth)
-
-                # calc ball center
-                world_pos = self.pixel_to_world(cx, cy, metric_depth, radius=base_radius)
-                
-                # criteria passed, add to potential balls
-                potential_balls.append({
-                    'id': obj_id,
-                    'center': (cx, cy),
-                    'world_pos': world_pos,
-                    'depth': metric_depth,
-                    'area': area,
-                    'circularity': circularity,
-                    'color': (r, g, b), 
-                    'radius': base_radius
-                })
-                
-                # print(f"\nPotential ball found:")
-                # print(f"  ID: {obj_id}")
-                # print(f"  RGB: {(r, g, b)}")
-                # print(f"  Position: ({cx}, {cy})")
-                # print(f"  Depth: {metric_depth:.3f}m")
-                # print(f"  World pos: {world_pos}")
-                # print(f"  Area: {area}")
-                # print(f"  Circularity: {circularity}")
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+            
+            # 检查深度
+            depth_buffer = depth[cy, cx]
+            metric_depth = self.convert_depth_to_meters(depth_buffer)
+            
+            # 计算半径
+            base_radius = self.calculate_metric_radius(area, metric_depth)
+            
+            # 计算球心的世界坐标
+            world_pos = self.pixel_to_world(cx, cy, metric_depth, radius=base_radius)
+            
+            # 添加到潜在球体列表
+            potential_balls.append({
+                'id': obj_id,
+                'center': (cx, cy),
+                'world_pos': world_pos,
+                'depth': metric_depth,
+                'area': area,
+                'radius': base_radius
+            })
+            
+            # print(f"检测到障碍物:")
+            # print(f"  ID: {obj_id}")
+            # print(f"  Position: ({cx}, {cy})")
+            # print(f"  Depth: {metric_depth:.3f}m")
+            # print(f"  World pos: {world_pos}")
+            # print(f"  Area: {area}")
+            # print(f"  Radius: {base_radius:.3f}m")
         
-        # 2. cluster potential balls to avoid duplicate detection
+        # 按照深度排序
         if potential_balls:
-            potential_balls.sort(key=lambda x: x['depth']) # sort based on distance to camera
+            potential_balls.sort(key=lambda x: x['depth'])
             
-            selected_balls = []
+            # 直接使用所有检测到的球体
             for ball in potential_balls:
-                too_close = False
-                for selected in selected_balls:
-                    dist = np.linalg.norm(ball['world_pos'] - selected['world_pos'])
-                    if dist < 0.5:
-                        too_close = True
-                        break
-                
-                if not too_close:
-                    selected_balls.append(ball)
-                    if len(selected_balls) >= self.n_obstacles:
-                        break
-            
-            for ball in selected_balls:
                 detections.append(np.array([
                     ball['world_pos'][0], 
                     ball['world_pos'][1], 
                     ball['world_pos'][2], 
                     ball['radius']
                 ]))
+            
+            # print(f"\n最终选择的球体数量: {len(potential_balls)}")
+            # for i, ball in enumerate(potential_balls):
+            #     print(f"球体 #{i+1}: ID={ball['id']}, 位置={ball['world_pos']}, 半径={ball['radius']:.3f}m")
         
         return detections
     
