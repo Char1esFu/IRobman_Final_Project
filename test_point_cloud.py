@@ -11,6 +11,9 @@ from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
+from src.grasping.grasp_generation import GraspGeneration
+from src.grasping import utils
+from scipy.spatial.transform import Rotation
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
@@ -410,6 +413,106 @@ def iterative_closest_point(collected_data):
     
     return merged_pcd
 
+def run_grasping(config, sim, collected_point_clouds):
+    """
+    执行抓取生成和可视化
+    
+    参数:
+    config: 配置字典
+    sim: 模拟对象
+    collected_point_clouds: 收集的点云数据列表
+    """
+    print("合并点云并计算质心...")
+    merged_pcd = iterative_closest_point(collected_point_clouds)
+    centre_point = np.asarray(merged_pcd.points)
+    centre_point = centre_point.mean(axis=0)
+    print(f"点云质心坐标: {centre_point}")
+    
+    # 初始化IK求解器
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    
+    # 获取当前关节位置
+    current_joints = sim.robot.get_joint_positions()
+    
+    # 初始化抓取生成器
+    print("生成抓取候选...")
+    grasp_generator = GraspGeneration()
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    
+    # 为每个抓取创建网格
+    all_grasp_meshes = []
+    for grasp in sampled_grasps:
+        R, grasp_center = grasp
+        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+
+    # 从点云创建三角网格用于可视化
+    print("从点云创建三角网格...")
+    obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=merged_pcd, 
+                                                                                      alpha=0.08)
+ 
+    # 评估抓取质量
+    print("评估抓取质量...")
+    vis_meshes = [obj_triangle_mesh]
+    highest_quality = 0
+    highest_containment_grasp = None
+    best_grasp = None
+    
+    for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+        if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
+            valid_grasp, grasp_quality = grasp_generator.check_grasp_containment(
+                grasp_mesh[0].get_center(), 
+                grasp_mesh[1].get_center(),
+                finger_length=0.05,
+                object_pcd=merged_pcd,
+                num_rays=50,
+                rotation_matrix=pose[0],
+            )
+            # 如果需要，将张量转换为浮点数
+            if hasattr(grasp_quality, 'item'):
+                grasp_quality = float(grasp_quality.item())
+            
+            # 使用新的质量指标选择抓取
+            if valid_grasp and grasp_quality > highest_quality:
+                highest_quality = grasp_quality
+                highest_containment_grasp = grasp_mesh
+                best_grasp = pose
+                print(f"找到更好的抓取，质量: {grasp_quality:.3f}")
+
+    # 可视化最佳抓取
+    if highest_containment_grasp is not None:
+        print(f"找到有效抓取，最高质量: {highest_quality:.3f}")
+        vis_meshes.extend(highest_containment_grasp)
+    else:
+        print("未找到有效抓取!")
+
+    # 显示可视化结果
+    print("显示抓取可视化结果...")
+    utils.visualize_3d_objs(vis_meshes)
+    
+    # 如果找到有效抓取，移动机器人到抓取位置
+    if best_grasp is not None:
+        rot_mat, translation = best_grasp
+        goal_pos = merged_pcd.get_center() + translation
+        print(f"目标位置: {goal_pos}")
+        rot = Rotation.from_matrix(rot_mat)
+        rot_quat = rot.as_quat()
+        
+        # 解算IK获取关节目标
+        joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
+        
+        # 移动机器人到抓取位置
+        print("移动机器人到抓取位置...")
+        sim.robot.position_control(joint_goals)
+        
+        # 打开夹爪
+        print("打开夹爪...")
+        sim.robot.control_gripper()
+        
+        # 等待一段时间让物理稳定
+        for _ in range(100):
+            sim.step()
+            time.sleep(1/240.)
+
 def run(config):
     """
     main function to run point cloud collection from multiple viewpoints
@@ -430,7 +533,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbBanana" 
+    target_obj_name = "YcbMustardBottle" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -735,14 +838,14 @@ def run(config):
         except ValueError as e:
             print(f"Error building point cloud for viewpoint {viewpoint_idx + 1}:", e)
     
-    sim.close()
-    return collected_data
+    # sim.close()
+    return collected_data, sim
 
 if __name__ == "__main__":
     with open("configs/test_config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
     # Run simulation and collect point clouds
-    collected_point_clouds = run(config)
+    collected_point_clouds, sim = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
     
     # 检查并打印高点点云的z轴最大值点
@@ -759,3 +862,10 @@ if __name__ == "__main__":
         # Then show merged point cloud
         print("\nVisualizing merged point cloud...")
         visualize_point_clouds(collected_point_clouds, show_merged=True)
+        
+        # 执行抓取生成
+        print("\n执行抓取生成...")
+        run_grasping(config, sim, collected_point_clouds)
+        
+        # 关闭模拟
+        sim.close()
