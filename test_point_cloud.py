@@ -489,30 +489,6 @@ def run_grasping(config, sim, collected_point_clouds):
     # 显示可视化结果
     print("显示抓取可视化结果...")
     utils.visualize_3d_objs(vis_meshes)
-    
-    # 如果找到有效抓取，移动机器人到抓取位置
-    if best_grasp is not None:
-        rot_mat, translation = best_grasp
-        goal_pos = merged_pcd.get_center() + translation
-        print(f"目标位置: {goal_pos}")
-        rot = Rotation.from_matrix(rot_mat)
-        rot_quat = rot.as_quat()
-        
-        # 解算IK获取关节目标
-        joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
-        
-        # 移动机器人到抓取位置
-        print("移动机器人到抓取位置...")
-        sim.robot.position_control(joint_goals)
-        
-        # 打开夹爪
-        print("打开夹爪...")
-        sim.robot.control_gripper()
-        
-        # 等待一段时间让物理稳定
-        for _ in range(100):
-            sim.step()
-            time.sleep(1/240.)
 
 def run(config):
     """
@@ -534,7 +510,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbBanana" 
+    target_obj_name = "YcbGelatinBox" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -573,8 +549,8 @@ def run(config):
     
     # 生成轨迹
     print("为高点观察位置生成轨迹...")
-    high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
-    
+    # high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
+    high_point_trajectory = generate_trajectory(initial_joints, high_point_target_joints, steps=100)
     if not high_point_trajectory:
         print("无法生成到高点观察位置的轨迹，跳过高点点云采集")
     else:
@@ -588,7 +564,7 @@ def run(config):
         for joint_target in high_point_trajectory:
             # sim.get_ee_renders()
             sim.robot.position_control(joint_target)
-            for _ in range(5):
+            for _ in range(1):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -653,9 +629,9 @@ def run(config):
             else:
                 print("高点点云中没有点")
             
-            # 可视化高点点云
-            print("\n可视化高点点云...")
-            visualize_point_clouds([high_point_cloud_data], show_merged=False)
+            # # 可视化高点点云
+            # print("\n可视化高点点云...")
+            # visualize_point_clouds([high_point_cloud_data], show_merged=False)
             
             # 将高点点云添加到收集的数据中
             collected_data.append(high_point_cloud_data)
@@ -663,33 +639,7 @@ def run(config):
             
         except ValueError as e:
             print(f"为高点观察位置构建点云时出错:", e)
-        
-    #     # 从高点回到初始位置
-    #     print("\n从高点回到初始位置...")
-    #     # 生成从高点回到初始位置的轨迹
-    #     return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
-        
-    #     if not return_trajectory:
-    #         print("无法生成回到初始位置的轨迹")
-    #     else:
-    #         print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
-            
-    #         # 沿轨迹移动机器人回到初始位置
-    #         for joint_target in return_trajectory:
-    #             sim.robot.position_control(joint_target)
-    #             for _ in range(1):
-    #                 sim.step()
-    #                 time.sleep(1/240.)
-            
-    #         print("已回到初始位置")
-    
-    # # 确保机器人回到初始位置
-    # for i, joint_idx in enumerate(sim.robot.arm_idx):
-    #     p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
-    
-    # ===== 原有的4个点云采集位置 =====
-    # Define target positions and orientations
-    # 使用物体质心作为x和y的基准点，加上偏移量
+
     target_positions = [
         
         np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
@@ -791,7 +741,7 @@ def run(config):
             
             # Move robot
             sim.robot.position_control(joint_target)
-            for _ in range(5):
+            for _ in range(1):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -856,13 +806,13 @@ if __name__ == "__main__":
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
-        # First show individual point clouds
-        print("\nVisualizing individual point clouds...")
-        visualize_point_clouds(collected_point_clouds, show_merged=False)
+        # # First show individual point clouds
+        # print("\nVisualizing individual point clouds...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=False)
         
-        # Then show merged point cloud
-        print("\nVisualizing merged point cloud...")
-        visualize_point_clouds(collected_point_clouds, show_merged=True)
+        # # Then show merged point cloud
+        # print("\nVisualizing merged point cloud...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=True)
         
         # 执行抓取生成
         print("\n执行抓取生成...")
