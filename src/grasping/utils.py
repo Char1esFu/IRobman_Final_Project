@@ -33,10 +33,6 @@ def create_grasp_mesh(
 ) -> Sequence[o3d.geometry.TriangleMesh]:
     """
     Creates a mesh representation of a robotic gripper.
-    The gripper is created aligned with PyBullet's world coordinate system:
-    - Default orientation (no rotation) has gripper pointing up (+Z)
-    - Fingers are aligned along Y-axis
-    - Gripper width is along X-axis
 
     Args:
         center_point: Central position of the gripper in 3D space
@@ -65,11 +61,10 @@ def create_grasp_mesh(
     # Create left finger
     left_finger = o3d.geometry.TriangleMesh.create_box(
         width=width/2,
-        height=depth,  # Swap height and depth
-        depth=height   # to align with PyBullet
+        height=height,
+        depth=depth
     )
     left_finger.paint_uniform_color(color_left)
-    # Translate along x and z axes instead of x and y
     left_finger.translate((-gripper_distance-width/2, 0, 0) + center_point)
     if rotation_matrix is not None:
         left_finger.rotate(rotation_matrix, center=center_point)
@@ -78,38 +73,34 @@ def create_grasp_mesh(
     # Create right finger
     right_finger = o3d.geometry.TriangleMesh.create_box(
         width=width/2,
-        height=depth,  # Swap height and depth
-        depth=height   # to align with PyBullet
+        height=height,
+        depth=depth
     )
     right_finger.paint_uniform_color(color_right)
-    # Translate along x and z axes
     right_finger.translate((gripper_distance, 0, 0) + center_point)
     if rotation_matrix is not None:
         right_finger.rotate(rotation_matrix, center=center_point)
     grasp_geometries.append(right_finger)
 
-    # Create coupler (horizontal bar)
     coupler = o3d.geometry.TriangleMesh.create_box(
         width=2*gripper_distance + width,
-        height=depth,      # Swap height and depth
-        depth=width/2     # to align with PyBullet
+        height=width/2,
+        depth=depth
     )
     coupler.paint_uniform_color([0, 0, 1])
-    # Translate along x and z axes
-    coupler.translate((-gripper_distance-width/2, 0, gripper_height) + center_point)
+    coupler.translate(
+        (-gripper_distance-width/2, gripper_height, 0) + center_point)
     if rotation_matrix is not None:
         coupler.rotate(rotation_matrix, center=center_point)
     grasp_geometries.append(coupler)
 
-    # Create vertical stick
     stick = o3d.geometry.TriangleMesh.create_box(
         width=width/2,
-        height=depth,        # Swap height and depth
-        depth=height*1.5    # to align with PyBullet
+        height=height*1.5,
+        depth=depth
     )
     stick.paint_uniform_color([0, 0, 1])
-    # Translate along x and z axes
-    stick.translate((-width/4, 0, gripper_height) + center_point)
+    stick.translate((-width/4, gripper_height, 0) + center_point)
     if rotation_matrix is not None:
         stick.rotate(rotation_matrix, center=center_point)
     grasp_geometries.append(stick)

@@ -15,10 +15,6 @@ class GraspGeneration:
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
-        Uses PyBullet's coordinate system convention where:
-        - roll=0 means gripper pointing up (+Z)
-        - roll=180 means gripper pointing down (-Z)
-        - pitch and yaw define the tilting from vertical axis
 
         Args:
             center: Center around which to sample grasps.
@@ -31,47 +27,72 @@ class GraspGeneration:
 
         grasp_poses_list = []
         for idx in range(num_grasps):
-            # Sample position offset
-            theta = np.random.uniform(0, 2*np.pi)  # Rotation around vertical axis
+            # Sample a grasp center and rotation of the grasp
+            # Sample a random vector in R3 for axis angle representation
+            # Return the rotation as rotation matrix + translation
+            # Translation implies translation from a center point
+            theta = np.random.uniform(0, 2*np.pi)
+
+            # phi = np.random.uniform(0, np.pi)
+            # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
+            # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
+
+            # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
+            phi = np.arccos(np.random.uniform(0, 1))
+            # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
             r = np.random.uniform(0, offset)
-            
-            # Calculate position with offset mainly in x-y plane
-            x = r * np.cos(theta)
-            y = r * np.sin(theta)
-            z = np.random.uniform(-offset/4, offset/4)  # Smaller vertical offset
+
+            x = r * np.sin(phi) * np.cos(theta)
+            y = r * np.sin(phi) * np.sin(theta)
+            z = r * np.cos(phi)
             grasp_center = center_point + np.array([x, y, z])
 
-            # Generate rotation for downward-facing grasp
-            # Roll: around x-axis, 180° (pointing down)
-            roll = np.radians(180)
-            # Pitch: around y-axis, small variation for tilting
-            pitch = np.radians(0)
-            # Yaw: around z-axis, full rotation allowed
-            yaw = np.random.uniform(-np.pi, np.pi)
+            # axis = np.random.normal(size=3)
+            # axis = np.array([0, 0, -1])
+            # axis /= np.linalg.norm(axis)
+            # angle = np.random.uniform(0, 2 * np.pi)
 
-            # Convert Euler angles to rotation matrices
+            # K =  np.array([
+            #     [0, -axis[2], axis[1]],
+            #     [axis[2], 0, -axis[0]],
+            #     [-axis[1], axis[0], 0],
+            # ])
+            # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
+
+            offset = np.random.uniform(0, np.pi/12)
+            # offset = 0
+            
             Rx = np.array([
-                [1, 0, 0],
-                [0, np.cos(roll), -np.sin(roll)],
-                [0, np.sin(roll), np.cos(roll)]
+                [1,  0,  0],
+                [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
+                [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
             ])
             
-            Ry = np.array([
-                [np.cos(pitch), 0, np.sin(pitch)],
-                [0, 1, 0],
-                [-np.sin(pitch), 0, np.cos(pitch)]
-            ])
-            
-            Rz = np.array([
-                [np.cos(yaw), -np.sin(yaw), 0],
-                [np.sin(yaw), np.cos(yaw), 0],
-                [0, 0, 1]
-            ])
-            
-            # Combine rotations: R = Rz @ Ry @ Rx
-            R = Rz @ Ry @ Rx
+            # Generate a random angle for X rotation
+            theta = np.random.uniform(0, 2 * np.pi)  # Random angle in radians
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-            assert R.shape == (3, 3)
+            # Rotation matrix about X-axis
+            Ry = np.array([
+                [cos_t, 0, sin_t],
+                [ 0, 1, 0],
+                [-sin_t, 0, cos_t]
+            ])
+
+            # Ry = np.eye(3)
+
+            Rx_again = np.array([
+                [1, 0, 0],
+                [0, np.cos(offset), -np.sin(offset)],
+                [0, np.sin(offset), np.cos(offset)]
+            ])
+
+            # Final rotation matrix: First apply Rx, then Rz
+            R = Rx @ Ry @ Rx_again # Equivalent to R = np.dot(Rz, Rx)
+
+
+
+            # assert R.shape == (3, 3)
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
 
@@ -145,73 +166,93 @@ class GraspGeneration:
     ) -> Tuple[bool, float]:
         """
         Checks if any line between the gripper fingers intersects with the object mesh.
-        Evaluates grasp quality based on:
-        1. Number of rays that hit the object
-        2. Average penetration depth of the rays
-        3. Position of hits along the finger length
 
         Args:
             left_finger_center: Center of Left finger of grasp
             right_finger_center: Center of Right finger of grasp
-            finger_length: Finger Length of the gripper
+            finger_length: Finger Length of the gripper.
             object_pcd: Point Cloud of the target object
-            num_rays: Number of rays to cast between fingers
-            rotation_matrix: Rotation matrix for the grasp
+            clearance_threshold: Minimum required clearance between object and gripper
 
         Returns:
-            tuple[bool, float]: (intersection_exists, grasp_quality)
-            - intersection_exists: True if valid grasp found
-            - grasp_quality: Quality score combining hit ratio and depth
+            tuple[bool, float]: (intersection_exists, intersection_depth)
+            - intersection_exists: True if any line between fingers intersects object
+            - intersection_depth: Depth of deepest intersection point
         """
+
         left_center = np.asarray(left_finger_center)
         right_center = np.asarray(right_finger_center)
 
-        # Create mesh for ray casting
-        obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
-            pcd=object_pcd, alpha=0.016)
+        intersections = []
+        # Check for intersections between corresponding points
+        object_tree = o3d.geometry.KDTreeFlann(object_pcd)
+
+        obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=object_pcd, 
+                                                                                          alpha=0.016)
+        # I just tuned alpha till I got a complete mesh with no holes, which had the best fidelity to the shape from the pcd
+        
         obj_triangle_mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(obj_triangle_mesh)
         scene = o3d.t.geometry.RaycastingScene()
-        _ = scene.add_triangles(obj_triangle_mesh_t)
+        obj_id = scene.add_triangles(obj_triangle_mesh_t)
 
-        # Calculate grasp parameters
+        # visualize_3d_objs([obj_triangle_mesh])
+
+        # now to know which direction to cast the rays towards, I added another coordinate 
+        #       frame in the cell above question 1 in this task (task 2)
+        # As shown in the coordinate frame, the fingers' tips begin at the at y=0, z=0 line, 
+        # while the rest of the fingers extend along the +y axis
+
         hand_width = np.linalg.norm(left_center-right_center)
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
-
-        # Move right finger to start position
-        right_center = right_center - rotation_matrix.dot(finger_vec/2)
-        
-        # Cast rays along finger length
+        # tolerance = 0.00001
+        rays_hit = 0
+        contained = False
         rays = []
+        # max_interception_depth = 0
+        # photon_translation = 1/50000  # I chose this as we are sampling the object into 50000 points
+        
+        # move the right centre to the start of the finger instead of the geometric centre
+        right_center = right_center - rotation_matrix.dot(finger_vec/2)
         for i in range(num_rays):
+            # print(f"ray {i+1}/{num_rays}")
+            # we are casting a ray from the right finger to the left
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
             rays.append([np.concatenate([right_new_center, ray_direction])])
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
-
-        # Analyze ray hits
+        # print(ans['t_hit'])
         rays_hit = 0
-        total_depth = 0
-        min_depth_threshold = 0.01  # Minimum penetration depth (1cm)
-        max_depth_threshold = hand_width * 0.8  # Maximum penetration depth (80% of hand width)
-        
-        # Weight hits based on position along finger
-        position_weights = np.linspace(0.5, 1.0, num_rays)  # Higher weight for hits near finger tip
-        
+        max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
+        rays = []
         for idx, hit_point in enumerate(ans['t_hit']):
-            hit_depth = hit_point[0]
-            if min_depth_threshold < hit_depth < max_depth_threshold:
+            # print(f"the hitpoint is {hit_point[0] < hand_width}")
+            if hit_point[0] < hand_width:
+                # I need to cast a ray from the left finger to check the depth and find the intersection depth
+                contained = True
                 rays_hit += 1
-                # Weight the depth by position along finger
-                total_depth += hit_depth * position_weights[idx]
+                left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
+                rays.append([np.concatenate([left_new_center, -ray_direction])])
+        
+        containment_ratio = 0.0
+        if contained:
+            rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
+            ans_left = scene.cast_rays(rays_t)
 
-        # Calculate grasp quality metrics
-        hit_ratio = rays_hit / num_rays
-        avg_depth_ratio = total_depth / (rays_hit * hand_width) if rays_hit > 0 else 0
-        
-        # Combine metrics into final quality score
-        # Hit ratio and depth ratio are equally weighted
-        grasp_quality = 0.5 * hit_ratio + 0.5 * avg_depth_ratio if rays_hit > 0 else 0
-        
-        return rays_hit > 0, grasp_quality
+
+            for idx, hitpoint in enumerate(ans['t_hit']):
+                left_idx = 0
+                if hitpoint[0] < hand_width: 
+                    interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
+                    max_interception_depth = max(max_interception_depth, interception_depth)
+                    left_idx += 1
+
+        print(f"the max interception depth is {max_interception_depth}")
+        containment_ratio = rays_hit / num_rays
+        intersections.append(contained)
+        # intersections.append(max_interception_depth[0])
+        # return contained, containment_ratio
+
+
+        return any(intersections), containment_ratio, max_interception_depth.item()

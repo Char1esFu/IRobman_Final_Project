@@ -437,7 +437,7 @@ def run_grasping(config, sim, collected_point_clouds):
     # 初始化抓取生成器
     print("生成抓取候选...")
     grasp_generator = GraspGeneration()
-    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 100, offset=0.1)
     
     # 为每个抓取创建网格
     all_grasp_meshes = []
@@ -458,8 +458,9 @@ def run_grasping(config, sim, collected_point_clouds):
     best_grasp = None
     
     for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+        print(f"grasp mesh:{grasp_mesh}")
         if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
-            valid_grasp, grasp_quality = grasp_generator.check_grasp_containment(
+            valid_grasp, grasp_quality, max_interception_depth = grasp_generator.check_grasp_containment(
                 grasp_mesh[0].get_center(), 
                 grasp_mesh[1].get_center(),
                 finger_length=0.05,
@@ -533,7 +534,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbMustardBottle" 
+    target_obj_name = "YcbBanana" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
