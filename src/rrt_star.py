@@ -111,6 +111,10 @@ class RRTStarPlanner:
             # Linear interpolation between start and end
             joint_pos = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
             
+            # Check height constraint
+            if not self._is_ee_height_valid(joint_pos):
+                return False
+                
             # Check collision with obstacles
             if self._is_state_in_collision(joint_pos):
                 return False
@@ -202,7 +206,47 @@ class RRTStarPlanner:
         Returns:
             Random joint configuration
         """
+        # Try to sample valid configuration that doesn't put end effector below base height
+        max_attempts = 50  # Maximum number of attempts to find valid configuration
+        
+        for _ in range(max_attempts):
+            # Sample random joint configuration
+            config = [random.uniform(low, high) for low, high in zip(self.lower_limits, self.upper_limits)]
+            
+            # Check if this configuration keeps the end effector above the table
+            if self._is_ee_height_valid(config):
+                return config
+                
+        # If we couldn't find a valid configuration after max_attempts, 
+        # return the last sampled configuration and let collision checking handle it
+        print("Warning: Could not sample configuration with valid end effector height")
         return [random.uniform(low, high) for low, high in zip(self.lower_limits, self.upper_limits)]
+    
+    def _is_ee_height_valid(self, joint_pos: List[float]) -> bool:
+        """Check if end effector height is valid (above the table).
+        
+        Args:
+            joint_pos: Joint positions to check
+            
+        Returns:
+            True if end effector height is valid, False otherwise
+        """
+        # Get end-effector position
+        ee_pos, _ = self._get_current_ee_pose(joint_pos)
+        
+        # Get robot base position (assuming it's at index 0)
+        # We can access the robot base position or use a fixed threshold for table height
+        # Here, we'll use a simple approach to check if ee_pos[2] (z-coordinate) is above a threshold
+        
+        # Get base link position
+        base_pos = p.getBasePositionAndOrientation(self.robot_id)[0]
+        table_height = base_pos[2]  # Base Z coordinate represents table height
+        
+        # Add a small threshold to account for the base height itself
+        min_height = table_height - 0.01  # 1cm margin below base
+        
+        # Check if end effector is above the table height
+        return ee_pos[2] > min_height
     
     def _steer(self, from_config: List[float], to_config: List[float]) -> List[float]:
         """Steer from one configuration toward another with step size limit.
@@ -217,10 +261,40 @@ class RRTStarPlanner:
         dist = self._distance(from_config, to_config)
         
         if dist < self.step_size:
-            return to_config
+            # If directly reaching to_config, check height validity
+            if self._is_ee_height_valid(to_config):
+                return to_config
+            else:
+                # Try to find intermediate valid configuration
+                for step_ratio in [0.9, 0.8, 0.7, 0.6, 0.5]:
+                    interpolated = [from_q + step_ratio * (to_q - from_q) 
+                                  for from_q, to_q in zip(from_config, to_config)]
+                    if self._is_ee_height_valid(interpolated):
+                        return interpolated
+                
+                # If no valid intermediate configuration found, return from_config
+                print("Warning: Could not find valid height interpolation in steer")
+                return from_config
         else:
             ratio = self.step_size / dist
-            return [from_q + ratio * (to_q - from_q) for from_q, to_q in zip(from_config, to_config)]
+            new_config = [from_q + ratio * (to_q - from_q) 
+                        for from_q, to_q in zip(from_config, to_config)]
+            
+            # Check height validity of new_config
+            if self._is_ee_height_valid(new_config):
+                return new_config
+            else:
+                # Try to find a slightly shorter step that's valid
+                for step_reduction in [0.9, 0.8, 0.7, 0.6, 0.5]:
+                    reduced_ratio = ratio * step_reduction
+                    reduced_config = [from_q + reduced_ratio * (to_q - from_q) 
+                                    for from_q, to_q in zip(from_config, to_config)]
+                    if self._is_ee_height_valid(reduced_config):
+                        return reduced_config
+                
+                # If no valid reduced step found, don't move
+                print("Warning: Could not find valid height step in steer")
+                return from_config
     
     def _calculate_cost(self, node_idx: int) -> float:
         """Calculate cost to reach a node from start.
@@ -375,7 +449,16 @@ class RRTStarPlanner:
         Returns:
             Tuple of (path as list of joint configurations, path cost)
         """
-        # Check if start and goal are valid
+        print("Starting RRT* planning with base height constraint...")
+        
+        # Check if start and goal are valid with height constraint
+        if not self._is_ee_height_valid(start_config):
+            print("Start configuration would put end effector below table!")
+        
+        if not self._is_ee_height_valid(goal_config):
+            print("Goal configuration would put end effector below table!")
+        
+        # Check if start and goal are valid for collision
         if self._is_state_in_collision(start_config):
             print("Start configuration is in collision!")
             return [], float('inf')
@@ -390,10 +473,16 @@ class RRTStarPlanner:
         self.parents = [-1]  # -1 means no parent
         self.debug_lines = []
         
+        # Track statistics for height validity
+        height_rejections = 0
+        collision_rejections = 0
+        
         # RRT* main loop
         for i in range(self.max_iterations):
             if i % 100 == 0:
-                print(f"RRT* planning iteration {i}/{self.max_iterations}")
+                print(f"RRT* planning iteration {i}/{self.max_iterations}, "
+                      f"Height rejections: {height_rejections}, "
+                      f"Collision rejections: {collision_rejections}")
                 
             # Sample random configuration (with bias toward goal)
             if random.random() < self.goal_sample_rate:
@@ -407,8 +496,13 @@ class RRTStarPlanner:
             # Steer toward random config
             new_config = self._steer(self.nodes[nearest_idx], random_config)
             
-            # Skip if new config is in collision
+            # Skip if new config is in collision or below table
+            if not self._is_ee_height_valid(new_config):
+                height_rejections += 1
+                continue
+                
             if self._is_state_in_collision(new_config):
+                collision_rejections += 1
                 continue
                 
             # Find nearby nodes
@@ -443,10 +537,18 @@ class RRTStarPlanner:
             # Check if we've reached the goal
             if self._distance(new_config, goal_config) < self.goal_threshold:
                 print(f"Goal reached after {i+1} iterations!")
+                print(f"Final statistics - Height rejections: {height_rejections}, "
+                      f"Collision rejections: {collision_rejections}")
+                
                 # Add goal node if not already part of the tree
                 if self._distance(new_config, goal_config) > 1e-6:
+                    # Check height validity for goal
+                    if not self._is_ee_height_valid(goal_config):
+                        print("Warning: Goal configuration has invalid height, "
+                              "using closest valid configuration")
+                        goal_idx = new_node_idx
                     # Check if direct path to goal is collision-free
-                    if self._is_collision_free(new_config, goal_config):
+                    elif self._is_collision_free(new_config, goal_config):
                         # Add goal node
                         self.nodes.append(goal_config)
                         cost_to_goal = cost_to_new + self._distance(new_config, goal_config)
@@ -472,9 +574,23 @@ class RRTStarPlanner:
                 path = self._extract_path(goal_idx)
                 path_cost = self.costs[goal_idx]
                 
+                # Verify all path points maintain valid height
+                invalid_heights = 0
+                for config in path:
+                    if not self._is_ee_height_valid(config):
+                        invalid_heights += 1
+                
+                if invalid_heights > 0:
+                    print(f"Warning: Final path has {invalid_heights}/{len(path)} configurations "
+                          f"with invalid heights")
+                else:
+                    print("All configurations in final path maintain valid height above table")
+                
                 return path, path_cost
                 
         print(f"Failed to reach goal after {self.max_iterations} iterations")
+        print(f"Final statistics - Height rejections: {height_rejections}, "
+              f"Collision rejections: {collision_rejections}")
         
         # Try to find closest node to goal
         dists_to_goal = [self._distance(node, goal_config) for node in self.nodes]
@@ -483,6 +599,18 @@ class RRTStarPlanner:
         # Extract path to closest node
         path = self._extract_path(closest_idx)
         path_cost = self.costs[closest_idx]
+        
+        # Verify all path points maintain valid height
+        invalid_heights = 0
+        for config in path:
+            if not self._is_ee_height_valid(config):
+                invalid_heights += 1
+        
+        if invalid_heights > 0:
+            print(f"Warning: Final path has {invalid_heights}/{len(path)} configurations "
+                  f"with invalid heights")
+        else:
+            print("All configurations in final path maintain valid height above table")
         
         return path, path_cost
     
