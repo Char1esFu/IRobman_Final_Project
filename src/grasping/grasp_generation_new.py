@@ -220,28 +220,19 @@ class GraspGeneration:
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
         
-        # 调整左右手指中心点，使其位于手指的实际位置
-        # 将右手指中心点移动到手指的起始位置
-        right_center = right_center - rotation_matrix.dot(finger_vec/2)
-        # 同样调整左手指中心点
-        left_center = left_center - rotation_matrix.dot(finger_vec/2)
-        
         # 对于低高度物体，调整射线起点高度
         if object_height < 0.05:  # 如果物体高度小于5cm
             print("检测到低高度物体，调整射线高度...")
             
             # 计算手指中心点与物体中心点在z轴上的差距
             z_diff = (right_center[2] + left_center[2]) / 2 - object_center[2]
-            
+            print(f"left_center: {left_center}, right_center: {right_center}, object_center: {object_center}")
             # 如果手指中心点高于物体中心点，则将手指中心点降低到物体中心高度
             if z_diff > 0.01:  # 如果差距大于1cm
                 height_adjustment = z_diff - 0.01  # 保留1cm的余量
                 right_center[2] -= height_adjustment
                 left_center[2] -= height_adjustment
                 print(f"射线高度已调整: {height_adjustment:.4f}m")
-        
-        # 重新计算手指之间的实际距离
-        actual_hand_width = np.linalg.norm(left_center-right_center)
         
         # 用于存储射线的起点和终点，用于可视化
         ray_start_points = []
@@ -268,48 +259,6 @@ class GraspGeneration:
         contained = False
         rays_hit = 0
         
-        # 对于低高度物体，增加垂直方向的射线密度
-        vertical_rays = 0
-        if object_height < 0.05:  # 如果物体高度小于5cm
-            print("为低高度物体增加垂直方向射线...")
-            vertical_rays = 10  # 增加10条垂直方向的射线
-            vertical_step = object_height / (vertical_rays + 1)  # 垂直方向的步长
-        
-        for i in range(num_rays):
-            # 计算长度方向上的采样点
-            right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-            left_new_center = left_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-            # 添加从右指尖到左指尖的射线
-            rays.append([np.concatenate([right_new_center, ray_direction])])
-            
-            # 存储射线起点和终点用于可视化 - 使用实际手指宽度
-            ray_start_points.append(right_new_center)
-            ray_end_points.append(right_new_center + ray_direction * actual_hand_width)
-            
-            # 为低高度物体添加垂直方向的射线
-            if vertical_rays > 0:
-                for v in range(vertical_rays):
-                    # 计算垂直偏移
-                    v_offset = (v + 1) * vertical_step
-                    
-                    # 向下的射线
-                    down_point = right_new_center.copy()
-                    down_point[2] -= v_offset
-                    rays.append([np.concatenate([down_point, ray_direction])])
-                    
-                    # 存储射线起点和终点用于可视化
-                    ray_start_points.append(down_point)
-                    ray_end_points.append(down_point + ray_direction * actual_hand_width)
-                    
-                    # 向上的射线
-                    up_point = right_new_center.copy()
-                    up_point[2] += v_offset
-                    rays.append([np.concatenate([up_point, ray_direction])])
-                    
-                    # 存储射线起点和终点用于可视化
-                    ray_start_points.append(up_point)
-                    ray_end_points.append(up_point + ray_direction * actual_hand_width)
-        
         # 宽度方向两侧的平行平面
         for plane in range(1, width_planes + 1):
             # 计算当前平面的偏移量
@@ -324,7 +273,7 @@ class GraspGeneration:
                 
                 # 存储射线起点和终点用于可视化 - 使用实际手指宽度
                 ray_start_points.append(right_point)
-                ray_end_points.append(right_point + ray_direction * actual_hand_width)
+                ray_end_points.append(right_point + ray_direction * hand_width)
             
             # 左侧平面
             for i in range(num_rays):
@@ -335,7 +284,7 @@ class GraspGeneration:
                 
                 # 存储射线起点和终点用于可视化 - 使用实际手指宽度
                 ray_start_points.append(right_point)
-                ray_end_points.append(right_point + ray_direction * actual_hand_width)
+                ray_end_points.append(right_point + ray_direction * hand_width)
         
         print(f"总共生成了 {len(rays)} 条射线")
         
@@ -366,7 +315,7 @@ class GraspGeneration:
         print("处理射线投射结果...")
         for idx, hit_point in enumerate(ans['t_hit']):
             # 使用实际手指宽度判断射线是否击中物体
-            if hit_point[0] < actual_hand_width:
+            if hit_point[0] < hand_width:
                 contained = True
                 rays_hit += 1
                 
@@ -386,8 +335,8 @@ class GraspGeneration:
                     if idx < num_rays:  # 只处理中心平面的射线
                         left_idx = 0
                         # 使用实际手指宽度计算截断深度
-                        if hitpoint[0] < actual_hand_width: 
-                            interception_depth = actual_hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
+                        if hitpoint[0] < hand_width: 
+                            interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
                             max_interception_depth = max(max_interception_depth, interception_depth)
                             left_idx += 1
 

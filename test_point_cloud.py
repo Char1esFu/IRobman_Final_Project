@@ -12,6 +12,7 @@ from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 from src.grasping.grasp_generation_new import GraspGeneration
+# from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import utils
 from scipy.spatial.transform import Rotation
 
@@ -580,9 +581,9 @@ def run_grasping(config, sim, collected_point_clouds):
                 rotation_matrix=pose[0],
                 visualize_rays=False # toggle visualization of ray casting
             )
-            # 如果需要，将张量转换为浮点数
-            if hasattr(grasp_quality, 'item'):
-                grasp_quality = float(grasp_quality.item())
+            # # 如果需要，将张量转换为浮点数
+            # if hasattr(grasp_quality, 'item'):
+            #     grasp_quality = float(grasp_quality.item())
             
             # 使用新的质量指标选择抓取
             if valid_grasp and grasp_quality > highest_quality:
@@ -849,7 +850,225 @@ def run_grasping(config, sim, collected_point_clouds):
 
     # 显示可视化结果
     print("显示抓取可视化结果...")
-    utils.visualize_3d_objs(vis_meshes)
+    # utils.visualize_3d_objs(vis_meshes)
+
+def run_planning(config, sim):
+    """
+    使用RRT*规划从抓取后上举位置到托盘位置的路径
+    
+    参数:
+    config: 配置字典
+    sim: 模拟对象
+    """
+    print("\n========== 开始路径规划 ==========")
+    
+    # 初始化障碍物跟踪器
+    obstacle_tracker = ObstacleTracker(n_obstacles=2, exp_settings=config)
+    
+    # 使用静态相机获取障碍物位置
+    print("获取障碍物信息...")
+    rgb_static, depth_static, seg_static = sim.get_static_renders()
+    detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+    tracked_positions = obstacle_tracker.update(detections)
+    
+    # 可视化障碍物边界框
+    bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
+    print(f"检测到 {len(tracked_positions)} 个障碍物")
+    
+    # 获取当前机械臂位置（抓取后上举位置）
+    current_joints = sim.robot.get_joint_positions()
+    current_ee_pos, current_ee_orn = sim.robot.get_ee_pose()
+    print(f"当前末端执行器位置: {current_ee_pos}")
+    
+    # 计算托盘位置（目标位置）
+    min_lim, max_lim = sim.goal._get_goal_lims()
+    goal_pos = np.array([
+        (min_lim[0] + max_lim[0])/2,
+        (min_lim[1] + max_lim[1])/2,
+        max_lim[2] + 0.2
+    ])
+    goal_pos[0] -= 0.2
+    goal_pos[1] -= 0.2
+    print(f"托盘目标位置: {goal_pos}")
+    
+    # 在PyBullet中可视化托盘目标位置
+    visual_id = p.createVisualShape(
+        shapeType=p.GEOM_SPHERE,
+        radius=0.03,  # 3cm半径的球体
+        rgbaColor=[0, 0, 1, 0.7]  # 蓝色半透明
+    )
+    goal_marker_id = p.createMultiBody(
+        baseMass=0,  # 质量为0表示静态物体
+        baseVisualShapeIndex=visual_id,
+        basePosition=goal_pos.tolist()
+    )
+    
+    # 添加目标位置坐标轴
+    axis_length = 0.1  # 10cm长的坐标轴
+    p.addUserDebugLine(
+        goal_pos, 
+        goal_pos + np.array([axis_length, 0, 0]), 
+        [1, 0, 0], 3, 0  # X轴 - 红色
+    )
+    p.addUserDebugLine(
+        goal_pos, 
+        goal_pos + np.array([0, axis_length, 0]), 
+        [0, 1, 0], 3, 0  # Y轴 - 绿色
+    )
+    p.addUserDebugLine(
+        goal_pos, 
+        goal_pos + np.array([0, 0, axis_length]), 
+        [0, 0, 1], 3, 0  # Z轴 - 蓝色
+    )
+    
+    # 添加目标位置文本标签
+    p.addUserDebugText(
+        f"目标位置 ({goal_pos[0]:.3f}, {goal_pos[1]:.3f}, {goal_pos[2]:.3f})",
+        goal_pos + np.array([0, 0, 0.05]),  # 在目标位置上方5cm处显示文本
+        [1, 1, 1],  # 白色文本
+        1.0  # 文本大小
+    )
+    
+    # 初始化IK求解器
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    
+    # 解算目标位置的IK
+    goal_orn = current_ee_orn  # 保持当前方向
+    goal_joints = ik_solver.solve(goal_pos, goal_orn, current_joints, max_iters=50, tolerance=0.001)
+    
+    if goal_joints is None:
+        print("无法解算目标位置的IK，无法进行路径规划")
+        return
+    
+    print("初始化RRT*规划器...")
+    # 初始化RRT*规划器
+    rrt_planner = RRTStarPlanner(
+        robot_id=sim.robot.id,
+        joint_indices=sim.robot.arm_idx,
+        lower_limits=sim.robot.lower_limits,
+        upper_limits=sim.robot.upper_limits,
+        ee_link_index=sim.robot.ee_idx,
+        obstacle_tracker=obstacle_tracker,
+        max_iterations=3000,  # 增加迭代次数以获得更好的路径
+        step_size=0.2,
+        goal_sample_rate=0.1,  # 增加目标采样率
+        search_radius=0.6,
+        goal_threshold=0.15,
+        collision_check_step=0.05
+    )
+    
+    print("开始RRT*路径规划...")
+    # 规划路径
+    trajectory = generate_rrt_star_trajectory(sim, rrt_planner, current_joints, goal_joints, visualize=True)
+    
+    if not trajectory:
+        print("RRT*规划失败，尝试使用简单的关节空间规划...")
+        trajectory = generate_trajectory(current_joints, goal_joints, steps=200)
+    
+    if not trajectory:
+        print("无法生成到目标位置的路径，规划失败")
+        return
+    
+    print(f"生成了包含 {len(trajectory)} 个点的轨迹")
+    
+    # 执行轨迹
+    print("执行规划的轨迹...")
+    for joint_target in trajectory:
+        # 更新障碍物跟踪
+        rgb_static, depth_static, seg_static = sim.get_static_renders()
+        detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+        tracked_positions = obstacle_tracker.update(detections)
+        
+        # # 可视化跟踪的障碍物
+        # if bounding_box_ids:
+        #     for debug_line in bounding_box_ids:
+        #         p.removeUserDebugItem(debug_line)
+        # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
+        
+        # 移动机器人
+        sim.robot.position_control(joint_target)
+        for _ in range(1):
+            sim.step()
+            time.sleep(1/240.)
+    
+    print("机械臂已成功移动到托盘位置")
+    
+    # 放下物体
+    print("\n========== 放下物体 ==========")
+    # 打开爪子
+    open_gripper_width = 0.04  # 打开爪子的宽度
+    p.setJointMotorControlArray(
+        sim.robot.id,
+        jointIndices=sim.robot.gripper_idx,
+        controlMode=p.POSITION_CONTROL,
+        targetPositions=[open_gripper_width, open_gripper_width]
+    )
+    
+    # 等待爪子打开
+    for _ in range(int(1.0 * 240)):  # 等待1秒
+        sim.step()
+        time.sleep(1/240.)
+    
+    print("爪子已打开，物体已放置到托盘位置")
+    
+    # ===== 机械臂沿原路返回 =====
+    print("\n========== 机械臂返回 ==========")
+    
+    # 获取当前的关节角度（托盘位置，现在作为新的起点）
+    current_joints_at_goal = sim.robot.get_joint_positions()
+    current_ee_pos_at_goal = current_ee_pos  # 使用之前保存的上举位置作为目标
+    
+    print(f"从托盘位置 {goal_pos} 返回到上举位置 {current_ee_pos}")
+    
+    # 再次使用RRT*规划从托盘位置回到上举位置的路径
+    print("开始返回路径规划...")
+    
+    # 更新障碍物位置
+    rgb_static, depth_static, seg_static = sim.get_static_renders()
+    detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+    tracked_positions = obstacle_tracker.update(detections)
+    
+    # # 可视化障碍物边界框
+    # if bounding_box_ids:
+    #     for debug_line in bounding_box_ids:
+    #         p.removeUserDebugItem(debug_line)
+    # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
+    
+    # 规划返回路径
+    return_trajectory = generate_rrt_star_trajectory(sim, rrt_planner, current_joints_at_goal, current_joints, visualize=True)
+    
+    if not return_trajectory:
+        print("RRT*规划返回路径失败，尝试使用简单的关节空间规划...")
+        return_trajectory = generate_trajectory(current_joints_at_goal, current_joints, steps=200)
+    
+    if not return_trajectory:
+        print("无法生成返回路径，规划失败")
+    else:
+        print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
+        
+        # 执行返回轨迹
+        print("执行规划的返回轨迹...")
+        for joint_target in return_trajectory:
+            # 更新障碍物跟踪
+            rgb_static, depth_static, seg_static = sim.get_static_renders()
+            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+            tracked_positions = obstacle_tracker.update(detections)
+            
+            # # 可视化跟踪的障碍物
+            # if bounding_box_ids:
+            #     for debug_line in bounding_box_ids:
+            #         p.removeUserDebugItem(debug_line)
+            # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
+            
+            # 移动机器人
+            sim.robot.position_control(joint_target)
+            for _ in range(1):
+                sim.step()
+                time.sleep(1/240.)
+        
+        print("机械臂已成功返回到上举位置")
+    
+    print("\n========== 路径规划完成 ==========")
 
 def run_pcd(config):
     """
@@ -870,7 +1089,7 @@ def run_pcd(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbMediumClamp" 
+    target_obj_name = "YcbMustardBottle" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -1183,6 +1402,10 @@ if __name__ == "__main__":
         # 执行抓取生成
         print("\n执行抓取生成...")
         run_grasping(config, sim, collected_point_clouds)
+        
+        # 执行路径规划
+        print("\n执行路径规划...")
+        run_planning(config, sim)
         
         # 关闭模拟
         sim.close()

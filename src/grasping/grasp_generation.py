@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Tuple, Sequence, Optional, Any
 import open3d as o3d
+import pybullet as p  # 导入pybullet用于可视化
 
 
 class GraspGeneration:
@@ -163,7 +164,8 @@ class GraspGeneration:
         object_pcd: o3d.geometry.PointCloud,
         num_rays: int,
         rotation_matrix: np.ndarray, # rotation-mat
-    ) -> Tuple[bool, float]:
+        visualize_rays: bool = False  # 是否在PyBullet中可视化射线
+    ) -> Tuple[bool, float, float]:
         """
         Checks if any line between the gripper fingers intersects with the object mesh.
 
@@ -172,11 +174,14 @@ class GraspGeneration:
             right_finger_center: Center of Right finger of grasp
             finger_length: Finger Length of the gripper.
             object_pcd: Point Cloud of the target object
-            clearance_threshold: Minimum required clearance between object and gripper
+            num_rays: Number of rays to cast
+            rotation_matrix: Rotation matrix for the grasp
+            visualize_rays: Whether to visualize rays in PyBullet
 
         Returns:
-            tuple[bool, float]: (intersection_exists, intersection_depth)
+            tuple[bool, float, float]: 
             - intersection_exists: True if any line between fingers intersects object
+            - containment_ratio: Ratio of rays that hit the object
             - intersection_depth: Depth of deepest intersection point
         """
 
@@ -212,6 +217,10 @@ class GraspGeneration:
         # max_interception_depth = 0
         # photon_translation = 1/50000  # I chose this as we are sampling the object into 50000 points
         
+        # 用于存储射线的起点和终点，用于可视化
+        ray_start_points = []
+        ray_end_points = []
+        
         # move the right centre to the start of the finger instead of the geometric centre
         right_center = right_center - rotation_matrix.dot(finger_vec/2)
         for i in range(num_rays):
@@ -219,10 +228,29 @@ class GraspGeneration:
             # we are casting a ray from the right finger to the left
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
             rays.append([np.concatenate([right_new_center, ray_direction])])
+            
+            # 存储射线起点和终点用于可视化
+            ray_start_points.append(right_new_center)
+            ray_end_points.append(right_new_center + ray_direction * hand_width)
+
+        # 在PyBullet中可视化射线
+        debug_lines = []
+        if visualize_rays:
+            print("在PyBullet中可视化射线...")
+            for start, end in zip(ray_start_points, ray_end_points):
+                line_id = p.addUserDebugLine(
+                    start.tolist(), 
+                    end.tolist(), 
+                    lineColorRGB=[1, 0, 0],  # 红色
+                    lineWidth=1,
+                    lifeTime=2  # 2秒后自动消失
+                )
+                debug_lines.append(line_id)
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
         # print(ans['t_hit'])
+
         rays_hit = 0
         max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
         rays = []
@@ -250,6 +278,8 @@ class GraspGeneration:
 
         print(f"the max interception depth is {max_interception_depth}")
         containment_ratio = rays_hit / num_rays
+        print(f"射线命中率: {containment_ratio:.4f} ({rays_hit}/{num_rays})")
+        
         intersections.append(contained)
         # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
