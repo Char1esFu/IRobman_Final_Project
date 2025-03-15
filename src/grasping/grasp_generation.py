@@ -11,7 +11,7 @@ class GraspGeneration:
         self,
         center_point: np.ndarray,
         num_grasps: int,
-        offset: float = 0.1,
+        radius: float = 0.1,
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
@@ -19,7 +19,7 @@ class GraspGeneration:
         Args:
             center: Center around which to sample grasps.
             num_grasps: Number of random grasp poses to generate
-            offset: Maximum distance offset from the center (meters)
+            radius: Maximum distance offset from the center (meters)
 
         Returns:
             list: List of rotations and Translations
@@ -40,7 +40,7 @@ class GraspGeneration:
             # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
             phi = np.arccos(np.random.uniform(0, 1))
             # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
-            r = np.random.uniform(0, offset)
+            r = np.random.uniform(0, radius)
 
             x = r * np.sin(phi) * np.cos(theta)
             y = r * np.sin(phi) * np.sin(theta)
@@ -59,8 +59,8 @@ class GraspGeneration:
             # ])
             # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
 
-            offset = np.random.uniform(0, np.pi/12)
-            # offset = 0
+            # offset = np.random.uniform(0, np.pi/12)
+            offset = 0
             
             Rx = np.array([
                 [1,  0,  0],
