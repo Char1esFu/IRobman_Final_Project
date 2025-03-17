@@ -13,6 +13,7 @@ class GraspGeneration:
         center_point: np.ndarray,
         num_grasps: int,
         radius: float = 0.1,
+        sim = None
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
@@ -27,6 +28,8 @@ class GraspGeneration:
         """
 
         grasp_poses_list = []
+        table_height = sim.robot.pos[2] + 0.01 # 0.01m higher than robot base from visualisation
+        
         for idx in range(num_grasps):
             # Sample a grasp center and rotation of the grasp
             # Sample a random vector in R3 for axis angle representation
@@ -38,15 +41,17 @@ class GraspGeneration:
             # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
             # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
 
-            # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
-            phi = np.arccos(np.random.uniform(0, 1))
+            phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
+            # phi = np.arccos(np.random.uniform(0, 1))
             # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
-            r = np.random.uniform(0, radius)
+            r = radius * (np.random.uniform(0, 1))**(1/3)
 
             x = r * np.sin(phi) * np.cos(theta)
             y = r * np.sin(phi) * np.sin(theta)
             z = r * np.cos(phi)
             grasp_center = center_point + np.array([x, y, z])
+            grasp_center[2] = max(grasp_center[2], table_height)
+            print(f"grasp_center: {grasp_center}")
 
             # axis = np.random.normal(size=3)
             # axis = np.array([0, 0, -1])

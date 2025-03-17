@@ -8,9 +8,11 @@ import pybullet as p
 import open3d as o3d
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
+# from src.ik_solver_new import DifferentialIKSolver
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
+# from src.potential_field import PotentialFieldPlanner
 from src.grasping.grasp_generation_new import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import utils
@@ -434,7 +436,7 @@ def run_grasping(config, sim, collected_point_clouds):
     # 创建一个红色球体表示质心
     visual_id = p.createVisualShape(
         shapeType=p.GEOM_SPHERE,
-        radius=0.02,  # 2cm半径的球体
+        radius=0.01,  # 1cm半径的球体
         rgbaColor=[1, 0, 0, 1]  # 红色
     )
     centroid_id = p.createMultiBody(
@@ -443,27 +445,9 @@ def run_grasping(config, sim, collected_point_clouds):
         basePosition=centre_point.tolist()
     )
     
-    # 添加坐标轴以更好地可视化质心位置
-    axis_length = 0.1  # 10cm长的坐标轴
-    p.addUserDebugLine(
-        centre_point, 
-        centre_point + np.array([axis_length, 0, 0]), 
-        [1, 0, 0], 3, 0  # X轴 - 红色
-    )
-    p.addUserDebugLine(
-        centre_point, 
-        centre_point + np.array([0, axis_length, 0]), 
-        [0, 1, 0], 3, 0  # Y轴 - 绿色
-    )
-    p.addUserDebugLine(
-        centre_point, 
-        centre_point + np.array([0, 0, axis_length]), 
-        [0, 0, 1], 3, 0  # Z轴 - 蓝色
-    )
-    
     # 添加文本标签
     p.addUserDebugText(
-        f"质心 ({centre_point[0]:.3f}, {centre_point[1]:.3f}, {centre_point[2]:.3f})",
+        f"Centroid ({centre_point[0]:.3f}, {centre_point[1]:.3f}, {centre_point[2]:.3f})",
         centre_point + np.array([0, 0, 0.05]),  # 在质心上方5cm处显示文本
         [1, 1, 1],  # 白色文本
         1.0  # 文本大小
@@ -516,40 +500,14 @@ def run_grasping(config, sim, collected_point_clouds):
     print("生成抓取候选...")
     grasp_generator = GraspGeneration()
     
-    # 修改质心高度，使其更适合低高度物体
-    adjusted_centre_point = centre_point.copy()
-    
-    # 如果物体高度较小，将质心高度调整为物体高度的一半
-    if object_height < 0.1:  # 如果物体高度小于10cm
-        print("检测到低高度物体，调整质心高度...")
-        # 将质心高度设置为物体底部加上物体高度的一半
-        adjusted_centre_point[2] = min_point[2] + object_height / 2
-        print(f"调整后的质心坐标: {adjusted_centre_point}")
-        
-        # 可视化调整后的质心
-        visual_id_adjusted = p.createVisualShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=0.02,  # 2cm半径的球体
-            rgbaColor=[0, 1, 0, 1]  # 绿色
-        )
-        adjusted_centroid_id = p.createMultiBody(
-            baseMass=0,
-            baseVisualShapeIndex=visual_id_adjusted,
-            basePosition=adjusted_centre_point.tolist()
-        )
-        
-        # 添加文本标签
-        p.addUserDebugText(
-            f"调整后质心 ({adjusted_centre_point[0]:.3f}, {adjusted_centre_point[1]:.3f}, {adjusted_centre_point[2]:.3f})",
-            adjusted_centre_point + np.array([0, 0, 0.05]),
-            [0, 1, 0],  # 绿色文本
-            1.0
-        )
-    else:
-        adjusted_centre_point = centre_point
-        
-    # 使用调整后的质心生成抓取候选
-    sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 100, radius=0.1)
+    sampled_grasps = grasp_generator.sample_grasps(
+        centre_point, 
+        num_grasps=1000, 
+        radius=0.1, 
+        sim=sim,
+        min_point=min_point,
+        max_point=max_point
+    )
     
     # 为每个抓取创建网格
     all_grasp_meshes = []
@@ -571,7 +529,7 @@ def run_grasping(config, sim, collected_point_clouds):
     
     for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
         print(f"grasp mesh:{grasp_mesh}")
-        if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
+        if not grasp_generator.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
             valid_grasp, grasp_quality, max_interception_depth = grasp_generator.check_grasp_containment(
                 grasp_mesh[0].get_center(), 
                 grasp_mesh[1].get_center(),
@@ -581,9 +539,6 @@ def run_grasping(config, sim, collected_point_clouds):
                 rotation_matrix=pose[0],
                 visualize_rays=False # toggle visualization of ray casting
             )
-            # # 如果需要，将张量转换为浮点数
-            # if hasattr(grasp_quality, 'item'):
-            #     grasp_quality = float(grasp_quality.item())
             
             # 使用新的质量指标选择抓取
             if valid_grasp and grasp_quality > highest_quality:
@@ -602,6 +557,20 @@ def run_grasping(config, sim, collected_point_clouds):
         R, grasp_center = best_grasp
         print(f"抓取中心位置: {grasp_center}")
         
+        # 构建爪子自身坐标系中的偏移向量
+        # 根据create_grasp_mesh中的坐标系定义，y轴是手指延伸方向
+        local_offset = np.array([0, 0.06, 0])
+
+        # 使用旋转矩阵将偏移向量从爪子坐标系转换到世界坐标系
+        world_offset = R @ local_offset
+
+        # 计算补偿后的末端执行器目标位置
+        ee_target_pos = grasp_center + world_offset
+        
+        print(f"原始grasp_center: {grasp_center}")
+        print(f"补偿向量: {world_offset}")
+        print(f"补偿后ee_target_pos: {ee_target_pos}")
+        
         # 将旋转矩阵转换为四元数
         rot = Rotation.from_matrix(R)
         quat = rot.as_quat()  # [x, y, z, w]格式
@@ -614,7 +583,6 @@ def run_grasping(config, sim, collected_point_clouds):
         # 计算末端执行器的目标位姿
         # 注意：这里假设抓取中心就是末端执行器的目标位置，旋转矩阵就是末端执行器的目标方向
         # 实际应用中可能需要根据机器人的具体配置进行调整
-        ee_target_pos = grasp_center
         ee_target_orn = p.getQuaternionFromEuler([euler[0]/180*np.pi, euler[1]/180*np.pi, euler[2]/180*np.pi])
         
         print("\n========== 末端执行器目标位姿 ==========")
@@ -777,10 +745,14 @@ def run_grasping(config, sim, collected_point_clouds):
                         
                         print("机械臂已移动到最终抓取位置")
                         
+                        for _ in range(int(0.5 * 240)):  # 等待1秒
+                            sim.step()
+                            time.sleep(1/240.)
+                            
                         # ===== 关闭爪子进行抓取 =====
                         print("\n========== 关闭爪子抓取物体 ==========")
                         # 设置较小的值关闭爪子
-                        close_gripper_width = 0.01  # 关闭爪子的宽度
+                        close_gripper_width = 0.005  # 关闭爪子的宽度
                         p.setJointMotorControlArray(
                             sim.robot.id,
                             jointIndices=sim.robot.gripper_idx,
@@ -789,7 +761,7 @@ def run_grasping(config, sim, collected_point_clouds):
                         )
                         
                         # 等待爪子关闭
-                        for _ in range(int(2.0 * 240)):  # 等待1秒
+                        for _ in range(int(1.0 * 240)):  # 等待1秒
                             sim.step()
                             time.sleep(1/240.)
                         
@@ -828,7 +800,7 @@ def run_grasping(config, sim, collected_point_clouds):
                                 print("执行提升轨迹...")
                                 for joint_target in lift_trajectory:
                                     sim.robot.position_control(joint_target)
-                                    for _ in range(1):
+                                    for _ in range(5):
                                         sim.step()
                                         time.sleep(1/240.)
                                 
@@ -850,7 +822,7 @@ def run_grasping(config, sim, collected_point_clouds):
 
     # 显示可视化结果
     print("显示抓取可视化结果...")
-    # utils.visualize_3d_objs(vis_meshes)
+    utils.visualize_3d_objs(vis_meshes)
 
 def run_planning(config, sim):
     """
@@ -923,7 +895,7 @@ def run_planning(config, sim):
     
     # 添加目标位置文本标签
     p.addUserDebugText(
-        f"目标位置 ({goal_pos[0]:.3f}, {goal_pos[1]:.3f}, {goal_pos[2]:.3f})",
+        f"Goal Position ({goal_pos[0]:.3f}, {goal_pos[1]:.3f}, {goal_pos[2]:.3f})",
         goal_pos + np.array([0, 0, 0.05]),  # 在目标位置上方5cm处显示文本
         [1, 1, 1],  # 白色文本
         1.0  # 文本大小
@@ -934,6 +906,7 @@ def run_planning(config, sim):
     
     # 解算目标位置的IK
     goal_orn = current_ee_orn  # 保持当前方向
+    # goal_orn = p.getQuaternionFromEuler([np.radians(-90), np.radians(-90), np.radians(-45)])
     goal_joints = ik_solver.solve(goal_pos, goal_orn, current_joints, max_iters=50, tolerance=0.001)
     
     if goal_joints is None:
@@ -953,7 +926,7 @@ def run_planning(config, sim):
         step_size=0.2,
         goal_sample_rate=0.1,  # 增加目标采样率
         search_radius=0.6,
-        goal_threshold=0.15,
+        goal_threshold=0.05,
         collision_check_step=0.05
     )
     
@@ -962,32 +935,16 @@ def run_planning(config, sim):
     trajectory = generate_rrt_star_trajectory(sim, rrt_planner, current_joints, goal_joints, visualize=True)
     
     if not trajectory:
-        print("RRT*规划失败，尝试使用简单的关节空间规划...")
-        trajectory = generate_trajectory(current_joints, goal_joints, steps=200)
-    
-    if not trajectory:
         print("无法生成到目标位置的路径，规划失败")
         return
     
     print(f"生成了包含 {len(trajectory)} 个点的轨迹")
     
-    # 执行轨迹
-    print("执行规划的轨迹...")
+    # 直接执行RRT*生成的轨迹
+    print("执行轨迹...")
     for joint_target in trajectory:
-        # 更新障碍物跟踪
-        rgb_static, depth_static, seg_static = sim.get_static_renders()
-        detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-        tracked_positions = obstacle_tracker.update(detections)
-        
-        # # 可视化跟踪的障碍物
-        # if bounding_box_ids:
-        #     for debug_line in bounding_box_ids:
-        #         p.removeUserDebugItem(debug_line)
-        # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
-        
-        # 移动机器人
         sim.robot.position_control(joint_target)
-        for _ in range(1):
+        for _ in range(5):
             sim.step()
             time.sleep(1/240.)
     
@@ -1010,65 +967,6 @@ def run_planning(config, sim):
         time.sleep(1/240.)
     
     print("爪子已打开，物体已放置到托盘位置")
-    
-    # ===== 机械臂沿原路返回 =====
-    print("\n========== 机械臂返回 ==========")
-    
-    # 获取当前的关节角度（托盘位置，现在作为新的起点）
-    current_joints_at_goal = sim.robot.get_joint_positions()
-    current_ee_pos_at_goal = current_ee_pos  # 使用之前保存的上举位置作为目标
-    
-    print(f"从托盘位置 {goal_pos} 返回到上举位置 {current_ee_pos}")
-    
-    # 再次使用RRT*规划从托盘位置回到上举位置的路径
-    print("开始返回路径规划...")
-    
-    # 更新障碍物位置
-    rgb_static, depth_static, seg_static = sim.get_static_renders()
-    detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-    tracked_positions = obstacle_tracker.update(detections)
-    
-    # # 可视化障碍物边界框
-    # if bounding_box_ids:
-    #     for debug_line in bounding_box_ids:
-    #         p.removeUserDebugItem(debug_line)
-    # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
-    
-    # 规划返回路径
-    return_trajectory = generate_rrt_star_trajectory(sim, rrt_planner, current_joints_at_goal, current_joints, visualize=True)
-    
-    if not return_trajectory:
-        print("RRT*规划返回路径失败，尝试使用简单的关节空间规划...")
-        return_trajectory = generate_trajectory(current_joints_at_goal, current_joints, steps=200)
-    
-    if not return_trajectory:
-        print("无法生成返回路径，规划失败")
-    else:
-        print(f"生成了包含 {len(return_trajectory)} 个点的返回轨迹")
-        
-        # 执行返回轨迹
-        print("执行规划的返回轨迹...")
-        for joint_target in return_trajectory:
-            # 更新障碍物跟踪
-            rgb_static, depth_static, seg_static = sim.get_static_renders()
-            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-            tracked_positions = obstacle_tracker.update(detections)
-            
-            # # 可视化跟踪的障碍物
-            # if bounding_box_ids:
-            #     for debug_line in bounding_box_ids:
-            #         p.removeUserDebugItem(debug_line)
-            # bounding_box_ids = obstacle_tracker.visualize_tracking_3d(tracked_positions)
-            
-            # 移动机器人
-            sim.robot.position_control(joint_target)
-            for _ in range(1):
-                sim.step()
-                time.sleep(1/240.)
-        
-        print("机械臂已成功返回到上举位置")
-    
-    print("\n========== 路径规划完成 ==========")
 
 def run_pcd(config):
     """
@@ -1089,7 +987,9 @@ def run_pcd(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbCrackerBox" 
+    
+    # failed: YcbScissors, YcbMustardBottle
+    target_obj_name = "YcbPottedMeatCan" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -1220,29 +1120,24 @@ def run_pcd(config):
             print(f"为高点观察位置构建点云时出错:", e)
 
     target_positions = [
-        # option 1:
         np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
         np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]),
         np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]),
         np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset]),
-        # # option 2:
-        # np.array([object_centroid_x + 0.1, object_centroid_y + 0.1, object_height_with_offset]),
-        # np.array([object_centroid_x - 0.1, object_centroid_y + 0.1, object_height_with_offset]),
         # np.array([object_centroid_x - 0.1, object_centroid_y - 0.1, object_height_with_offset]),
+        # np.array([object_centroid_x - 0.1, object_centroid_y + 0.1, object_height_with_offset]),
+        # np.array([object_centroid_x + 0.1, object_centroid_y + 0.1, object_height_with_offset]),
         # np.array([object_centroid_x + 0.1, object_centroid_y - 0.1, object_height_with_offset]),
     ]
     target_orientations = [
-        # option 1:
         p.getQuaternionFromEuler([0, np.radians(-150), 0]),
         p.getQuaternionFromEuler([np.radians(150), 0, 0]),
         p.getQuaternionFromEuler([0, np.radians(150), 0]),
         p.getQuaternionFromEuler([np.radians(-150), 0, 0]),
-        # # option 2:
-        # p.getQuaternionFromEuler([0, np.radians(-150), np.radians(45)]),
+        # p.getQuaternionFromEuler([np.radians(-150), 0, np.radians(-45)]),
         # p.getQuaternionFromEuler([np.radians(150), 0, np.radians(45)]),
-        # p.getQuaternionFromEuler([0, np.radians(150), np.radians(45)]),
+        # p.getQuaternionFromEuler([np.radians(150), 0, np.radians(-45)]),
         # p.getQuaternionFromEuler([np.radians(-150), 0, np.radians(45)]),
-        
     ]
     
     print(f"\n使用基于物体质心的采集位置:")
@@ -1272,23 +1167,6 @@ def run_pcd(config):
         # Reset to saved start position
         for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
-        
-        # # Initialize RRT* planner
-        # rrt_planner = RRTStarPlanner(
-        #     robot_id=sim.robot.id,
-        #     # joint_indices=ik_solver.joint_indices,
-        #     joint_indices=sim.robot.arm_idx,
-        #     lower_limits=sim.robot.lower_limits,
-        #     upper_limits=sim.robot.upper_limits,
-        #     ee_link_index=sim.robot.ee_idx,
-        #     obstacle_tracker=obstacle_tracker,
-        #     max_iterations=1000,
-        #     step_size=0.2,
-        #     goal_sample_rate=0.05,
-        #     search_radius=0.5,
-        #     goal_threshold=0.1,
-        #     collision_check_step=0.05
-        # )
         
         choice = 2  # Change this to test different methods
         
@@ -1389,15 +1267,15 @@ if __name__ == "__main__":
         if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
             print(f"\n高点观察位置点云的z轴最大值点: {data['max_z_point']}")
     
-    # Visualize the collected point clouds if any were collected
-    if collected_point_clouds:
-        # # First show individual point clouds
-        # print("\nVisualizing individual point clouds...")
-        # visualize_point_clouds(collected_point_clouds, show_merged=False)
+    # # Visualize the collected point clouds if any were collected
+    # if collected_point_clouds:
+    #     # First show individual point clouds
+    #     print("\nVisualizing individual point clouds...")
+    #     # visualize_point_clouds(collected_point_clouds, show_merged=False)
         
-        # # Then show merged point cloud
-        # print("\nVisualizing merged point cloud...")
-        # visualize_point_clouds(collected_point_clouds, show_merged=True)
+    #     # Then show merged point cloud
+    #     print("\nVisualizing merged point cloud...")
+    #     # visualize_point_clouds(collected_point_clouds, show_merged=True)
         
         # 执行抓取生成
         print("\n执行抓取生成...")
@@ -1406,6 +1284,9 @@ if __name__ == "__main__":
         # 执行路径规划
         print("\n执行路径规划...")
         run_planning(config, sim)
+        
+        # 等待用户按下Enter键后关闭模拟
+        input("\n按下Enter键关闭模拟...")
         
         # 关闭模拟
         sim.close()

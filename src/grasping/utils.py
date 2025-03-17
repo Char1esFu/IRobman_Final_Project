@@ -34,7 +34,7 @@ def create_grasp_mesh(
     gripper_height: float = 0.1,
     color_left: list = [1, 0, 0],  # Red
     color_right: list = [0, 1, 0],  # Green,
-    scale: float = 1.0,
+    scale: float = 0.6,
     rotation_matrix: Optional[np.ndarray] = None
 ) -> Sequence[o3d.geometry.TriangleMesh]:
     """

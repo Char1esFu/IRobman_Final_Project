@@ -13,54 +13,56 @@ class GraspGeneration:
         center_point: np.ndarray,
         num_grasps: int,
         radius: float = 0.1,
+        sim = None,
+        min_point: np.ndarray = None,
+        max_point: np.ndarray = None
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
-        Generates multiple random grasp poses around a given point cloud.
+        在边界框内生成多个随机抓取姿态。
 
-        Args:
-            center: Center around which to sample grasps.
-            num_grasps: Number of random grasp poses to generate
-            radius: Maximum distance offset from the center (meters)
+        参数:
+            center_point: 点云的质心坐标
+            num_grasps: 要生成的随机抓取姿态数量
+            radius: 最大距离偏移（仅在未提供边界框时使用）
+            sim: 模拟对象
+            min_point: 边界框的最小点坐标
+            max_point: 边界框的最大点坐标
 
-        Returns:
-            list: List of rotations and Translations
+        返回:
+            list: 旋转矩阵和平移向量的列表
         """
 
         grasp_poses_list = []
+        table_height = sim.robot.pos[2] + 0.01 # 比机器人基座高0.01m
+        
+        # 检查是否提供了边界框
+        use_bbox = min_point is not None and max_point is not None
+        
         for idx in range(num_grasps):
-            # Sample a grasp center and rotation of the grasp
-            # Sample a random vector in R3 for axis angle representation
-            # Return the rotation as rotation matrix + translation
-            # Translation implies translation from a center point
-            theta = np.random.uniform(0, 2*np.pi)
+            # 采样抓取中心和抓取旋转
+            if use_bbox:
+                # 在边界框内均匀采样
+                x = np.random.uniform(min_point[0], max_point[0])
+                y = np.random.uniform(min_point[1], max_point[1])
+                z = np.random.uniform(min_point[2], max_point[2])
+                grasp_center = np.array([x, y, z])
+            else:
+                # 原始方法：在球体内采样
+                theta = np.random.uniform(0, 2*np.pi)
+                phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
+                r = radius * (np.random.uniform(0, 1))**(1/3)
 
-            # phi = np.random.uniform(0, np.pi)
-            # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
-            # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
+                x = r * np.sin(phi) * np.cos(theta)
+                y = r * np.sin(phi) * np.sin(theta)
+                z = r * np.cos(phi)
+                grasp_center = center_point + np.array([x, y, z])
+            
+            # 确保抓取点不低于桌面高度
+            grasp_center[2] = max(grasp_center[2], table_height)
+            print(f"grasp_center: {grasp_center}")
 
-            # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
-            phi = np.arccos(np.random.uniform(0, 1))
-            # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
-            r = np.random.uniform(0, radius)
-
-            x = r * np.sin(phi) * np.cos(theta)
-            y = r * np.sin(phi) * np.sin(theta)
-            z = r * np.cos(phi)
-            grasp_center = center_point + np.array([x, y, z])
-
-            # axis = np.random.normal(size=3)
-            # axis = np.array([0, 0, -1])
-            # axis /= np.linalg.norm(axis)
-            # angle = np.random.uniform(0, 2 * np.pi)
-
-            # K =  np.array([
-            #     [0, -axis[2], axis[1]],
-            #     [axis[2], 0, -axis[0]],
-            #     [-axis[1], axis[0], 0],
-            # ])
-            # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
-
-            # offset = np.random.uniform(0, np.pi/12)
+            # 姿态采样保持不变
+            # offset = np.random.uniform(-np.pi/4, np.pi/4)
             offset = 0
             
             Rx = np.array([
@@ -69,18 +71,16 @@ class GraspGeneration:
                 [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
             ])
             
-            # Generate a random angle for X rotation
-            theta = np.random.uniform(0, 2 * np.pi)  # Random angle in radians
+            # 生成X轴旋转的随机角度
+            theta = np.random.uniform(0, 2 * np.pi)  # 随机角度（弧度）
             cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-            # Rotation matrix about X-axis
+            # X轴旋转矩阵
             Ry = np.array([
                 [cos_t, 0, sin_t],
                 [ 0, 1, 0],
                 [-sin_t, 0, cos_t]
             ])
-
-            # Ry = np.eye(3)
 
             Rx_again = np.array([
                 [1, 0, 0],
@@ -88,12 +88,9 @@ class GraspGeneration:
                 [0, np.sin(offset), np.cos(offset)]
             ])
 
-            # Final rotation matrix: First apply Rx, then Rz
-            R = Rx @ Ry @ Rx_again # Equivalent to R = np.dot(Rz, Rx)
+            # 最终旋转矩阵：先应用Rx，然后Ry，最后Rx_again
+            R = Rx @ Ry @ Rx_again
 
-
-
-            # assert R.shape == (3, 3)
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
 
@@ -103,35 +100,41 @@ class GraspGeneration:
     def check_grasp_collision(
         self,
         grasp_meshes: Sequence[o3d.geometry.TriangleMesh],
-        # object_mesh: o3d.geometry.TriangleMesh,
-        object_pcd,
+        object_mesh: o3d.geometry.TriangleMesh = None,
+        object_pcd = None,
         num_colisions: int = 10,
         tolerance: float = 0.00001) -> bool:
         """
-        Checks for collisions between a gripper grasp pose and target object
-        using point cloud sampling.
+        检查抓取器姿态与目标物体之间是否存在碰撞，使用点云采样方法。
 
-        Args:
-            grasp_meshes: List of mesh geometries representing the gripper components
-            object_mesh: Triangle mesh of the target object
-            num_collisions: Threshold on how many points to check
-            tolerance: Distance threshold for considering a collision (in meters)
+        参数:
+            grasp_meshes: 表示抓取器组件的网格几何列表
+            object_mesh: 目标物体的三角网格（可选）
+            object_pcd: 目标物体的点云（可选）
+            num_colisions: 判定为碰撞的点数阈值
+            tolerance: 判定碰撞的距离阈值（米）
 
-        Returns:
-            bool: True if collision detected between gripper and object, False otherwise
+        返回:
+            bool: 如果抓取器与物体之间检测到碰撞则为True，否则为False
         """
-        # Combine gripper meshes
+        # 合并抓取器网格
         combined_gripper = o3d.geometry.TriangleMesh()
         for mesh in grasp_meshes:
             combined_gripper += mesh
 
-        # Sample points from both meshes
-        num_points = 5000 # Subsample both meshes to this many points
+        # 从网格采样点
+        num_points = 5000  # 对两个网格进行子采样的点数
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
-        # object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
-        object_pcl = object_pcd
+        
+        # 确定使用哪个物体表示
+        if object_mesh is not None:
+            object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
+        elif object_pcd is not None:
+            object_pcl = object_pcd
+        else:
+            raise ValueError("必须提供object_mesh或object_pcd中的至少一个参数")
 
-        # Build KDTree for object points
+        # 为物体点构建KD树
         is_collision = False
         object_kd_tree = o3d.geometry.KDTreeFlann(object_pcl)
         collision_count = 0
@@ -140,7 +143,7 @@ class GraspGeneration:
             if distance[0] < tolerance:
                 collision_count += 1
                 if collision_count >= num_colisions:
-                    return True  # Collision detected
+                    return True  # 检测到碰撞
 
         return is_collision
     
@@ -220,20 +223,6 @@ class GraspGeneration:
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
         
-        # 对于低高度物体，调整射线起点高度
-        if object_height < 0.05:  # 如果物体高度小于5cm
-            print("检测到低高度物体，调整射线高度...")
-            
-            # 计算手指中心点与物体中心点在z轴上的差距
-            z_diff = (right_center[2] + left_center[2]) / 2 - object_center[2]
-            print(f"left_center: {left_center}, right_center: {right_center}, object_center: {object_center}")
-            # 如果手指中心点高于物体中心点，则将手指中心点降低到物体中心高度
-            if z_diff > 0.01:  # 如果差距大于1cm
-                height_adjustment = z_diff - 0.01  # 保留1cm的余量
-                right_center[2] -= height_adjustment
-                left_center[2] -= height_adjustment
-                print(f"射线高度已调整: {height_adjustment:.4f}m")
-        
         # 用于存储射线的起点和终点，用于可视化
         ray_start_points = []
         ray_end_points = []
@@ -311,18 +300,38 @@ class GraspGeneration:
         max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
         rays_from_left = []
         
+        # 跟踪左侧和右侧射线平面的命中情况
+        left_side_hit = False
+        right_side_hit = False
+        
+        # 计算每个平面的射线数量
+        rays_per_plane = num_rays
+        
         # 处理所有射线的结果
         print("处理射线投射结果...")
         for idx, hit_point in enumerate(ans['t_hit']):
             # 使用实际手指宽度判断射线是否击中物体
             if hit_point[0] < hand_width:
-                contained = True
                 rays_hit += 1
+                
+                # 确定射线属于左侧还是右侧平面
+                total_rays_count = len(rays)
+                half_rays_count = total_rays_count // 2
+                
+                if idx < half_rays_count:
+                    # 右侧平面的射线
+                    right_side_hit = True
+                else:
+                    # 左侧平面的射线
+                    left_side_hit = True
                 
                 # 只为中心平面（原始平面）的射线计算深度
                 if idx < num_rays:
                     left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
                     rays_from_left.append([np.concatenate([left_new_center, -ray_direction])])
+        
+        # 只有当左侧和右侧平面都至少有一条射线命中时，才算作contained
+        contained = left_side_hit and right_side_hit
         
         containment_ratio = 0.0
         if contained:
@@ -350,4 +359,27 @@ class GraspGeneration:
         # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
 
-        return any(intersections), containment_ratio, max_interception_depth.item()
+        # 计算抓取中心到物体中心的距离
+        grasp_center = (left_center + right_center) / 2
+        
+        # 计算3D空间中的总距离
+        distance_to_center = np.linalg.norm(grasp_center - object_center)
+        
+        # 计算仅在x-y平面上的距离（水平距离）
+        horizontal_distance = np.linalg.norm(grasp_center[:2] - object_center[:2])
+        
+        # 计算距离分数（距离越近分数越高）
+        center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
+        
+        # 计算水平距离分数（水平距离越近分数越高）
+        horizontal_score = np.exp(-horizontal_distance**2 / (2 * 0.03**2))
+        
+        # 将两个距离分数纳入最终质量评分，给水平距离更高的权重
+        final_quality = containment_ratio * (1 + center_score + 1.5 * horizontal_score)
+        
+        print(f"抓取中心: {grasp_center}")
+        print(f"水平距离: {horizontal_distance:.4f}m, 水平分数: {horizontal_score:.4f}")
+        print(f"总距离: {distance_to_center:.4f}m, 总距离分数: {center_score:.4f}")
+        print(f"最终质量评分: {final_quality:.4f}")
+        
+        return any(intersections), final_quality, max_interception_depth.item()
