@@ -1,7 +1,6 @@
 import numpy as np
 import pybullet as p
 import cv2
-from filterpy.kalman import KalmanFilter
 
 class ObstacleTracker:
     def __init__(self, n_obstacles=2, exp_settings=None):
@@ -12,62 +11,13 @@ class ObstacleTracker:
         """
         if exp_settings is None:
             raise ValueError("Config cannot be loaded")
-            
-        # Get settings from config
-        self.dt = 1.0 / exp_settings["world_settings"]["timestep_freq"]
+
         self.camera_settings = exp_settings["world_settings"]["camera"]
-        
-        # Get tracker parameters
-        tracker_config = exp_settings["tracker_settings"]
-        self.process_noise = tracker_config["process_noise"]
-        self.measurement_noise = tracker_config["measurement_noise"] 
-        self.initial_covariance = tracker_config["initial_covariance"]
-        # self.visualization_box_size = tracker_config["visualization_box_size"]
-        
         self.n_obstacles = n_obstacles
-        self.initialized = False
-        
-        # Store latest radius estimates
+        # Store latest measurements
+        self.latest_positions = np.zeros((n_obstacles, 3))
         self.latest_radius = [0.0 for _ in range(n_obstacles)]
         
-        # Store predicted positions
-        self.predicted_positions = None
-        
-        # kalman filters for each obstacle
-        self.filters = []
-        for _ in range(n_obstacles):
-            kf = KalmanFilter(dim_x=6, dim_z=3)  # state: [x,y,z,vx,vy,vz,r], measurement: [x,y,z,r]
-            
-            # state transition matrix F
-            kf.F = np.array([
-                [1, 0, 0, self.dt, 0, 0],  # x = x + vx*dt
-                [0, 1, 0, 0, self.dt, 0],  # y = y + vy*dt
-                [0, 0, 1, 0, 0, self.dt],  # z = z + vz*dt
-                [0, 0, 0, 1, 0, 0],   # vx = vx
-                [0, 0, 0, 0, 1, 0],   # vy = vy
-                [0, 0, 0, 0, 0, 1],   # vz = vz
-            ])
-            
-            # observation matrix H
-            kf.H = np.array([
-                [1, 0, 0, 0, 0, 0],  # x
-                [0, 1, 0, 0, 0, 0],  # y
-                [0, 0, 1, 0, 0, 0],  # z
-            ])
-            
-            # process noise covariance Q
-            kf.Q = np.eye(6) * self.process_noise
-            
-            # measurement noise covariance R
-            kf.R = np.eye(3) * self.measurement_noise
-            
-            # initial state covariance P
-            kf.P *= self.initial_covariance
-            
-            # initial state x
-            kf.x = np.zeros(6)
-            
-            self.filters.append(kf)
 
     def convert_depth_to_meters(self, depth_buffer):
         """Convert depth buffer to metric depth."""
@@ -143,13 +93,6 @@ class ObstacleTracker:
         # calculate base radius
         base_radius = (pixel_radius * depth * 2 * np.tan(fov_rad/2)) / height
         
-        # # Debug
-        # print(f"\nRadius Calculation Debug:")
-        # print(f"Area: {area} pixels")
-        # print(f"Pixel radius: {pixel_radius} pixels")
-        # print(f"Depth: {depth}m")
-        # print(f"Base radius: {base_radius}m")
-        # print(f"Corrected radius: {metric_radius}m")
         
         return base_radius
     
@@ -210,70 +153,27 @@ class ObstacleTracker:
                 'area': area,
                 'radius': base_radius
             })
-            
-            # print(f"检测到障碍物:")
-            # print(f"  ID: {obj_id}")
-            # print(f"  Position: ({cx}, {cy})")
-            # print(f"  Depth: {metric_depth:.3f}m")
-            # print(f"  World pos: {world_pos}")
-            # print(f"  Area: {area}")
-            # print(f"  Radius: {base_radius:.3f}m")
-        
-        # 按照深度排序
-        if potential_balls:
-            potential_balls.sort(key=lambda x: x['depth'])
-            
-            # 直接使用所有检测到的球体
-            for ball in potential_balls:
-                detections.append(np.array([
-                    ball['world_pos'][0], 
-                    ball['world_pos'][1], 
-                    ball['world_pos'][2], 
-                    ball['radius']
-                ]))
-            
-            # print(f"\n最终选择的球体数量: {len(potential_balls)}")
-            # for i, ball in enumerate(potential_balls):
-            #     print(f"球体 #{i+1}: ID={ball['id']}, 位置={ball['world_pos']}, 半径={ball['radius']:.3f}m")
-        
+
+        # 直接使用所有检测到的球体
+        for ball in potential_balls:
+            detections.append(np.array([
+                ball['world_pos'][0], 
+                ball['world_pos'][1], 
+                ball['world_pos'][2], 
+                ball['radius']
+            ]))
+
         return detections
     
     def update(self, detections):
-        """Update Kalman filters with new detections."""
-        if len(detections) == 0:
-            for kf in self.filters:
-                kf.predict()
-            predicted_positions = np.zeros((self.n_obstacles, 3))
-            for i, kf in enumerate(self.filters):
-                predicted_positions[i] = kf.x[:3]
-            self.predicted_positions = predicted_positions
-            return predicted_positions
-            
-        # init upon first detection
-        if not self.initialized:
-            for i, detection in enumerate(detections):
-                if i < len(self.filters):
-                    self.filters[i].x[:3] = detection[:3]  # set initial position
-                    self.latest_radius[i] = detection[3]    # store radius separately
-            self.initialized = True
+        """Update tracking with new detections."""
+        for i, detection in enumerate(detections):
+            if i < self.n_obstacles:
+                self.latest_positions[i] = detection[:3]  # set initial position
+                self.latest_radius[i] = detection[3]     # store radius separately
+        return self.latest_positions
 
-        predicted_positions = np.zeros((self.n_obstacles, 3))
-        detections = sorted(detections, key=lambda x: x[0])
-        
-        for i, (kf, detection) in enumerate(zip(self.filters, detections)):
-            kf.predict()
-            kf.update(detection[:3])
-            predicted_positions[i] = kf.x[:3]
-            self.latest_radius[i] = detection[3]
-            
-        self.predicted_positions = predicted_positions  # Store the predictions
-            
-        return predicted_positions
-    
-    def get_latest_radius(self, obstacle_index):
-        """Get the latest visually estimated radius for a given obstacle."""
-        return self.latest_radius[obstacle_index]
-    
+          
     # 3d bounding box
     def visualize_tracking_3d(self, tracked_positions):
         """Visualize tracking boxes in 3D space"""
@@ -329,14 +229,9 @@ class ObstacleTracker:
         """
         if not (0 <= obstacle_index < self.n_obstacles):
             raise ValueError(f"Invalid obstacle index: {obstacle_index}")
-            
-        if not self.initialized or self.predicted_positions is None:
-            return None
-            
-        kf = self.filters[obstacle_index]
+
         state = {
-            'position': self.predicted_positions[obstacle_index],  # [x, y, z]
-            'velocity': kf.x[3:6],  # [vx, vy, vz]
+            'position': self.latest_positions[obstacle_index], 
             'radius': self.latest_radius[obstacle_index]
         }
         return state
