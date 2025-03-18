@@ -8,7 +8,6 @@ import pybullet as p
 import open3d as o3d
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
-# from src.ik_solver_new import DifferentialIKSolver
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
@@ -564,7 +563,7 @@ def run_grasping(config, sim, collected_point_clouds):
     
     sampled_grasps = grasp_generator.sample_grasps(
         centre_point, 
-        num_grasps=1000, 
+        num_grasps=500, 
         radius=0.1, 
         sim=sim,
         rotation_matrix=rotation_matrix,
@@ -1058,7 +1057,7 @@ def run_pcd(config):
     # Unstable objects: YcbChipsCan, YcbPowerDrill
     
     # failed: YcbScissors, YcbMustardBottle
-    target_obj_name = "YcbHammer" 
+    target_obj_name = "YcbBanana" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
