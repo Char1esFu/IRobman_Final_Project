@@ -125,6 +125,17 @@ class DifferentialIKSolver:
         """solve IK using shadow client if available"""
         current_joints = np.array(current_joint_positions)
         
+        # 定义Franka Panda机器人的关节限位
+        joint_limits = [
+            (-2.9671, 2.9671),  # Joint 1 (panda_joint1)
+            (-1.8326, 1.8326),  # Joint 2 (panda_joint2)
+            (-2.9671, 2.9671),  # Joint 3 (panda_joint3)
+            (-3.1416, 0.0),     # Joint 4 (panda_joint4)
+            (-2.9671, 2.9671),  # Joint 5 (panda_joint5)
+            (-0.0873, 3.8223),  # Joint 6 (panda_joint6)
+            (-2.9671, 2.9671),  # Joint 7 (panda_joint7)
+        ]
+        
         # If using shadow client, set initial joint positions in shadow robot
         if self.use_shadow_client:
             for i, joint_idx in enumerate(self.joint_indices):
@@ -159,8 +170,21 @@ class DifferentialIKSolver:
                 J.T @ error
             )
             
-            # update joint angles
-            current_joints += delta_q
+            # 更新关节角度，并检查关节限位
+            new_joints = current_joints + delta_q
+            
+            # 应用关节限位约束
+            for i in range(min(len(new_joints), len(joint_limits))):
+                lower_limit, upper_limit = joint_limits[i]
+                if new_joints[i] < lower_limit:
+                    new_joints[i] = lower_limit
+                    print(f"警告：关节 {i} 超出下限，被截断至 {lower_limit}")
+                elif new_joints[i] > upper_limit:
+                    new_joints[i] = upper_limit
+                    print(f"警告：关节 {i} 超出上限，被截断至 {upper_limit}")
+            
+            # 更新关节角度
+            current_joints = new_joints
             
             # set joint state in shadow client only during iterations
             if self.use_shadow_client:

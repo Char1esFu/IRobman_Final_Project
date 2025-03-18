@@ -1,18 +1,14 @@
-❯ cd /home/char1es4k/Projects/IRobman_Final_Project && python -c "import pybullet as p; import pybullet_data; p.connect(p.DIRECT); p.
-setAdditionalSearchPath(pybullet_data.getDataPath()); robot = p.loadURDF('franka_panda/panda.urdf'); print('Franka Panda关节信息:');
-[print(f'关节 {i}: 名称={p.getJointInfo(robot, i)[1].decode()}, 类型={p.getJointInfo(robot, i)[2]}, 下限={p.getJointInfo(robot, i)[8]
-}, 上限={p.getJointInfo(robot, i)[9]}') for i in range(p.getNumJoints(robot))]"
-pybullet build time: Jan 29 2025 23:19:57
-Franka Panda关节信息:
-关节 0: 名称=panda_joint1, 类型=0, 下限=-2.9671, 上限=2.9671
-关节 1: 名称=panda_joint2, 类型=0, 下限=-1.8326, 上限=1.8326
-关节 2: 名称=panda_joint3, 类型=0, 下限=-2.9671, 上限=2.9671
-关节 3: 名称=panda_joint4, 类型=0, 下限=-3.1416, 上限=0.0
-关节 4: 名称=panda_joint5, 类型=0, 下限=-2.9671, 上限=2.9671
-关节 5: 名称=panda_joint6, 类型=0, 下限=-0.0873, 上限=3.8223
-关节 6: 名称=panda_joint7, 类型=0, 下限=-2.9671, 上限=2.9671
-关节 7: 名称=panda_joint8, 类型=4, 下限=0.0, 上限=-1.0
-关节 8: 名称=panda_hand_joint, 类型=4, 下限=0.0, 上限=-1.0
-关节 9: 名称=panda_finger_joint1, 类型=1, 下限=0.0, 上限=0.04
-关节 10: 名称=panda_finger_joint2, 类型=1, 下限=0.0, 上限=0.04
-关节 11: 名称=panda_grasptarget_hand, 类型=4, 下限=0.0, 上限=-1.0
+cd /home/char1es4k/Projects/IRobman_Final_Project && python -c "import pybullet as p; import pybullet_data; p.connect(p.DIRECT); p.setAdditionalSearchPath(pybullet_data.getDataPath()); robot = p.loadURDF('franka_panda/panda.urdf'); print('Franka Panda joint info:');[print(f'Joint {i}: Name={p.getJointInfo(robot, i)[1].decode()}, Type={p.getJointInfo(robot, i)[2]}, Lower Limit={p.getJointInfo(robot, i)[8]}, Upper Limit={p.getJointInfo(robot, i)[9]}') for i in range(p.getNumJoints(robot))]"                                           pybullet build time: Jan 29 2025 23:19:57
+Franka Panda joint info:
+Joint 0: Name=panda_joint1, Type=0, Lower Limit=-2.9671, Upper Limit=2.9671
+Joint 1: Name=panda_joint2, Type=0, Lower Limit=-1.8326, Upper Limit=1.8326
+Joint 2: Name=panda_joint3, Type=0, Lower Limit=-2.9671, Upper Limit=2.9671
+Joint 3: Name=panda_joint4, Type=0, Lower Limit=-3.1416, Upper Limit=0.0
+Joint 4: Name=panda_joint5, Type=0, Lower Limit=-2.9671, Upper Limit=2.9671
+Joint 5: Name=panda_joint6, Type=0, Lower Limit=-0.0873, Upper Limit=3.8223
+Joint 6: Name=panda_joint7, Type=0, Lower Limit=-2.9671, Upper Limit=2.9671
+Joint 7: Name=panda_joint8, Type=4, Lower Limit=0.0, Upper Limit=-1.0
+Joint 8: Name=panda_hand_joint, Type=4, Lower Limit=0.0, Upper Limit=-1.0
+Joint 9: Name=panda_finger_joint1, Type=1, Lower Limit=0.0, Upper Limit=0.04
+Joint 10: Name=panda_finger_joint2, Type=1, Lower Limit=0.0, Upper Limit=0.04
+Joint 11: Name=panda_grasptarget_hand, Type=4, Lower Limit=0.0, Upper Limit=-1.0

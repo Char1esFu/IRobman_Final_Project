@@ -425,6 +425,9 @@ def run_grasping(config, sim, collected_point_clouds):
     sim: 模拟对象
     collected_point_clouds: 收集的点云数据列表
     """
+    # 打开文件用于保存grasp_center
+    grasp_center_file = open("paste.txt", "w")
+    
     print("合并点云并计算质心...")
     merged_pcd = iterative_closest_point(collected_point_clouds)
     centre_point = np.asarray(merged_pcd.points)
@@ -455,30 +458,89 @@ def run_grasping(config, sim, collected_point_clouds):
     
     # 计算点云的边界框和高度
     points = np.asarray(merged_pcd.points)
-    min_point = np.min(points, axis=0)
-    max_point = np.max(points, axis=0)
-    object_height = max_point[2] - min_point[2]
+    
+    # 实现XY平面旋转的最小体积边界框(OBB)
+    # 1. 将点云投影到XY平面
+    points_xy = points.copy()
+    points_xy[:, 2] = 0  # 将Z坐标设为0，投影到XY平面
+    
+    # 2. 对XY平面上的点云进行PCA，找到主轴方向
+    xy_mean = np.mean(points_xy, axis=0)
+    xy_centered = points_xy - xy_mean
+    cov_xy = np.cov(xy_centered.T)[:2, :2]  # 只取XY平面的协方差
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_xy)
+    
+    # 排序特征值和特征向量（降序）
+    idx = eigenvalues.argsort()[::-1]
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:, idx]
+    
+    # 3. 获取主轴方向，这些是XY平面内的旋转方向
+    main_axis_x = np.array([eigenvectors[0, 0], eigenvectors[1, 0], 0])
+    main_axis_y = np.array([eigenvectors[0, 1], eigenvectors[1, 1], 0])
+    main_axis_z = np.array([0, 0, 1])  # Z轴保持垂直
+    
+    # 归一化主轴
+    main_axis_x = main_axis_x / np.linalg.norm(main_axis_x)
+    main_axis_y = main_axis_y / np.linalg.norm(main_axis_y)
+    
+    # 4. 构建旋转矩阵
+    rotation_matrix = np.column_stack((main_axis_x, main_axis_y, main_axis_z))
+    
+    # 5. 将点云旋转到新坐标系
+    points_rotated = np.dot(points - xy_mean, rotation_matrix)
+    
+    # 6. 在新坐标系中计算边界框
+    min_point_rotated = np.min(points_rotated, axis=0)
+    max_point_rotated = np.max(points_rotated, axis=0)
+    
+    # 计算旋转后的边界框尺寸
+    obb_dims = max_point_rotated - min_point_rotated
+    object_height = obb_dims[2]
+    
+    # 计算边界框的8个顶点（在旋转坐标系中）
+    bbox_corners_rotated = np.array([
+        [min_point_rotated[0], min_point_rotated[1], min_point_rotated[2]],
+        [max_point_rotated[0], min_point_rotated[1], min_point_rotated[2]],
+        [max_point_rotated[0], max_point_rotated[1], min_point_rotated[2]],
+        [min_point_rotated[0], max_point_rotated[1], min_point_rotated[2]],
+        [min_point_rotated[0], min_point_rotated[1], max_point_rotated[2]],
+        [max_point_rotated[0], min_point_rotated[1], max_point_rotated[2]],
+        [max_point_rotated[0], max_point_rotated[1], max_point_rotated[2]],
+        [min_point_rotated[0], max_point_rotated[1], max_point_rotated[2]],
+    ])
+    
+    # 将顶点变换回原始坐标系
+    bbox_corners = np.dot(bbox_corners_rotated, rotation_matrix.T) + xy_mean
+    
+    # 计算轴对齐边界框(AABB)用于抓取采样（基于OBB的顶点）
+    aabb_min_point = np.min(bbox_corners, axis=0)
+    aabb_max_point = np.max(bbox_corners, axis=0)
+    
     print(f"物体高度: {object_height:.4f}m")
-    print(f"物体边界框最小点: {min_point}")
-    print(f"物体边界框最大点: {max_point}")
+    print(f"物体边界框尺寸(旋转坐标系): {obb_dims}")
+    print(f"主轴方向X: {main_axis_x}")
+    print(f"主轴方向Y: {main_axis_y}")
+    print(f"轴对齐边界框最小点: {aabb_min_point}")
+    print(f"轴对齐边界框最大点: {aabb_max_point}")
     
     # 可视化物体边界框
     bbox_lines = [
         # 底部矩形
-        [min_point, [max_point[0], min_point[1], min_point[2]]],
-        [[max_point[0], min_point[1], min_point[2]], [max_point[0], max_point[1], min_point[2]]],
-        [[max_point[0], max_point[1], min_point[2]], [min_point[0], max_point[1], min_point[2]]],
-        [[min_point[0], max_point[1], min_point[2]], min_point],
+        [bbox_corners[0], bbox_corners[1]],
+        [bbox_corners[1], bbox_corners[2]],
+        [bbox_corners[2], bbox_corners[3]],
+        [bbox_corners[3], bbox_corners[0]],
         # 顶部矩形
-        [[min_point[0], min_point[1], max_point[2]], [max_point[0], min_point[1], max_point[2]]],
-        [[max_point[0], min_point[1], max_point[2]], max_point],
-        [max_point, [min_point[0], max_point[1], max_point[2]]],
-        [[min_point[0], max_point[1], max_point[2]], [min_point[0], min_point[1], max_point[2]]],
+        [bbox_corners[4], bbox_corners[5]],
+        [bbox_corners[5], bbox_corners[6]],
+        [bbox_corners[6], bbox_corners[7]],
+        [bbox_corners[7], bbox_corners[4]],
         # 连接线
-        [min_point, [min_point[0], min_point[1], max_point[2]]],
-        [[max_point[0], min_point[1], min_point[2]], [max_point[0], min_point[1], max_point[2]]],
-        [[max_point[0], max_point[1], min_point[2]], max_point],
-        [[min_point[0], max_point[1], min_point[2]], [min_point[0], max_point[1], max_point[2]]]
+        [bbox_corners[0], bbox_corners[4]],
+        [bbox_corners[1], bbox_corners[5]],
+        [bbox_corners[2], bbox_corners[6]],
+        [bbox_corners[3], bbox_corners[7]]
     ]
     
     for line in bbox_lines:
@@ -505,8 +567,10 @@ def run_grasping(config, sim, collected_point_clouds):
         num_grasps=1000, 
         radius=0.1, 
         sim=sim,
-        min_point=min_point,
-        max_point=max_point
+        rotation_matrix=rotation_matrix,
+        min_point_rotated=min_point_rotated,
+        max_point_rotated=max_point_rotated,
+        center_rotated=xy_mean
     )
     
     # 为每个抓取创建网格
@@ -530,6 +594,11 @@ def run_grasping(config, sim, collected_point_clouds):
     for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
         print(f"grasp mesh:{grasp_mesh}")
         if not grasp_generator.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
+            # 输出每个有效grasp_center并保存到文件
+            R, grasp_center = pose
+            print(f"grasp_center: {grasp_center}")
+            grasp_center_file.write(f"grasp_center: {grasp_center}\n")
+            
             valid_grasp, grasp_quality, max_interception_depth = grasp_generator.check_grasp_containment(
                 grasp_mesh[0].get_center(), 
                 grasp_mesh[1].get_center(),
@@ -590,19 +659,16 @@ def run_grasping(config, sim, collected_point_clouds):
         print(f"四元数 [x, y, z, w]: {ee_target_orn}")
         
         # 添加坐标系转换，使打印的姿态与Open3D可视化一致
-        # Open3D中抓取方向是竖直向下的，这可能是因为坐标系的差异
-        
-        # 分析抓取生成和可视化中的坐标系：
-        # 在GraspGeneration.sample_grasps中:
-        # - 创建了旋转矩阵 R = Rx @ Ry @ Rx_again
-        # - 其中Rx旋转了π/2，使得抓取方向可能沿着y轴
-        
-        # 这个矩阵结合了y轴映射到-z轴的旋转和绕z轴旋转90度
         combined_transform = np.array([
             [0, -1, 0],
             [0, 0, -1],
             [1, 0, 0]
         ])
+        # combined_transform = np.array([
+        #     [0, 1, 0],
+        #     [0, 0, -1],
+        #     [-1, 0, 0]
+        # ])
         
         # 直接应用合并后的转换
         R_world = R @ combined_transform
@@ -730,7 +796,7 @@ def run_grasping(config, sim, collected_point_clouds):
                     
                     # 生成从Pose 1到Pose 2的轨迹
                     print("生成到Pose 2的轨迹...")
-                    pose2_trajectory = generate_trajectory(current_joints, pose2_target_joints, steps=50)
+                    pose2_trajectory = generate_cartesian_trajectory(sim, ik_solver, current_joints, pose2_pos, pose2_orn, steps=50) # has to be straight line
                     
                     if pose2_trajectory:
                         print(f"生成了包含 {len(pose2_trajectory)} 个点的轨迹")
@@ -823,6 +889,9 @@ def run_grasping(config, sim, collected_point_clouds):
     # 显示可视化结果
     print("显示抓取可视化结果...")
     utils.visualize_3d_objs(vis_meshes)
+    
+    # 关闭文件
+    grasp_center_file.close()
 
 def run_planning(config, sim):
     """
@@ -859,8 +928,8 @@ def run_planning(config, sim):
         (min_lim[1] + max_lim[1])/2,
         max_lim[2] + 0.2
     ])
-    goal_pos[0] -= 0.2
-    goal_pos[1] -= 0.2
+    # goal_pos[0] -= 0.2
+    # goal_pos[1] -= 0.2
     print(f"托盘目标位置: {goal_pos}")
     
     # 在PyBullet中可视化托盘目标位置
@@ -926,7 +995,7 @@ def run_planning(config, sim):
         step_size=0.2,
         goal_sample_rate=0.1,  # 增加目标采样率
         search_radius=0.6,
-        goal_threshold=0.05,
+        goal_threshold=0.01,
         collision_check_step=0.05
     )
     
@@ -989,13 +1058,10 @@ def run_pcd(config):
     # Unstable objects: YcbChipsCan, YcbPowerDrill
     
     # failed: YcbScissors, YcbMustardBottle
-    target_obj_name = "YcbPottedMeatCan" 
+    target_obj_name = "YcbHammer" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
-    
-    # Initialize obstacle tracker
-    obstacle_tracker = ObstacleTracker(n_obstacles=2, exp_settings=config)
     
     # Initialize point cloud collection list
     collected_data = []
@@ -1108,7 +1174,7 @@ def run_pcd(config):
             else:
                 print("高点点云中没有点")
             
-            # # 可视化高点点云
+            # 可视化高点点云
             # print("\n可视化高点点云...")
             # visualize_point_clouds([high_point_cloud_data], show_merged=False)
             
@@ -1119,26 +1185,36 @@ def run_pcd(config):
         except ValueError as e:
             print(f"为高点观察位置构建点云时出错:", e)
 
-    target_positions = [
-        np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
-        np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]),
-        np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]),
-        np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset]),
-        # np.array([object_centroid_x - 0.1, object_centroid_y - 0.1, object_height_with_offset]),
-        # np.array([object_centroid_x - 0.1, object_centroid_y + 0.1, object_height_with_offset]),
-        # np.array([object_centroid_x + 0.1, object_centroid_y + 0.1, object_height_with_offset]),
-        # np.array([object_centroid_x + 0.1, object_centroid_y - 0.1, object_height_with_offset]),
-    ]
-    target_orientations = [
-        p.getQuaternionFromEuler([0, np.radians(-150), 0]),
-        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
-        p.getQuaternionFromEuler([0, np.radians(150), 0]),
-        p.getQuaternionFromEuler([np.radians(-150), 0, 0]),
-        # p.getQuaternionFromEuler([np.radians(-150), 0, np.radians(-45)]),
-        # p.getQuaternionFromEuler([np.radians(150), 0, np.radians(45)]),
-        # p.getQuaternionFromEuler([np.radians(150), 0, np.radians(-45)]),
-        # p.getQuaternionFromEuler([np.radians(-150), 0, np.radians(45)]),
-    ]
+    # 根据物体质心坐标动态生成目标位置和方向
+    # 判断物体是否远离机械臂（x<-0.2且y<-0.5视为远离）
+    is_object_far = object_centroid_x < -0.2 and object_centroid_y < -0.5
+    
+    # 基本的采样方向
+    target_positions = []
+    target_orientations = []
+    
+    # 东方向
+    target_positions.append(np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]))
+    target_orientations.append(p.getQuaternionFromEuler([0, np.radians(-150), 0]))
+    
+    # 北方向
+    target_positions.append(np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]))
+    target_orientations.append(p.getQuaternionFromEuler([np.radians(150), 0, 0]))
+    
+    # 西方向
+    target_positions.append(np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]))
+    target_orientations.append(p.getQuaternionFromEuler([0, np.radians(150), 0]))
+    
+    # 南方向（如果物体不在远处则添加）
+    if not is_object_far:
+        target_positions.append(np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset]))
+        target_orientations.append(p.getQuaternionFromEuler([np.radians(-150), 0, 0]))
+    else:
+        print("物体位置较远 (x<-0.2且y<-0.5)，跳过南方向采样点以避免奇异点")
+    
+    # 顶部视角
+    target_positions.append(np.array([-0.02, -0.45, 1.8]))
+    target_orientations.append(p.getQuaternionFromEuler([np.radians(180), 0, np.radians(-90)]))
     
     print(f"\n使用基于物体质心的采集位置:")
     print(f"物体质心坐标 (x, y): ({object_centroid_x:.4f}, {object_centroid_y:.4f})")
@@ -1251,7 +1327,7 @@ def run_pcd(config):
             
         except ValueError as e:
             print(f"Error building point cloud for viewpoint {viewpoint_idx + 1}:", e)
-    
+
     return collected_data
 
 if __name__ == "__main__":
@@ -1271,11 +1347,11 @@ if __name__ == "__main__":
     # if collected_point_clouds:
     #     # First show individual point clouds
     #     print("\nVisualizing individual point clouds...")
-    #     # visualize_point_clouds(collected_point_clouds, show_merged=False)
+    #     visualize_point_clouds(collected_point_clouds, show_merged=False)
         
     #     # Then show merged point cloud
     #     print("\nVisualizing merged point cloud...")
-    #     # visualize_point_clouds(collected_point_clouds, show_merged=True)
+    #     visualize_point_clouds(collected_point_clouds, show_merged=True)
         
         # 执行抓取生成
         print("\n执行抓取生成...")

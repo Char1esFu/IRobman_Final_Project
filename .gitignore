@@ -168,6 +168,7 @@ cython_debug/
 .idea/
 
 *pybullet-object-models
+paste.txt
 
 # uv configs
 .python-version

@@ -15,7 +15,11 @@ class GraspGeneration:
         radius: float = 0.1,
         sim = None,
         min_point: np.ndarray = None,
-        max_point: np.ndarray = None
+        max_point: np.ndarray = None,
+        rotation_matrix: np.ndarray = None,
+        min_point_rotated: np.ndarray = None,
+        max_point_rotated: np.ndarray = None,
+        center_rotated: np.ndarray = None
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         在边界框内生成多个随机抓取姿态。
@@ -25,23 +29,149 @@ class GraspGeneration:
             num_grasps: 要生成的随机抓取姿态数量
             radius: 最大距离偏移（仅在未提供边界框时使用）
             sim: 模拟对象
-            min_point: 边界框的最小点坐标
-            max_point: 边界框的最大点坐标
+            min_point: 轴对齐边界框的最小点坐标（已废弃，保留兼容性）
+            max_point: 轴对齐边界框的最大点坐标（已废弃，保留兼容性）
+            rotation_matrix: OBB旋转矩阵（从OBB坐标系到世界坐标系）
+            min_point_rotated: OBB在旋转坐标系中的最小点
+            max_point_rotated: OBB在旋转坐标系中的最大点
+            center_rotated: OBB旋转坐标系的原点在世界坐标系中的位置
 
         返回:
             list: 旋转矩阵和平移向量的列表
         """
 
         grasp_poses_list = []
-        table_height = sim.robot.pos[2] + 0.01 # 比机器人基座高0.01m
+        table_height = sim.robot.pos[2] # + 0.01 # 比机器人基座高0.01m
         
-        # 检查是否提供了边界框
-        use_bbox = min_point is not None and max_point is not None
+        # 检查是否提供了OBB
+        use_obb = rotation_matrix is not None and min_point_rotated is not None and max_point_rotated is not None and center_rotated is not None
+        
+        # 如果没有提供OBB但提供了AABB，使用兼容模式
+        use_bbox = not use_obb and min_point is not None and max_point is not None
+        
+        # 如果使用OBB，预先计算维度排序
+        if use_obb:
+            # 计算OBB三个维度的大小
+            obb_dims = max_point_rotated - min_point_rotated
+            
+            # 确定维度的长短排序
+            dims_with_idx = [(obb_dims[i], i) for i in range(3)]
+            dims_with_idx.sort()  # 按照维度长度升序排序
+            
+            # 获取最短边索引和次短边索引
+            shortest_axis_idx = dims_with_idx[0][1]  # 最短边对应的坐标轴索引
+            second_shortest_idx = dims_with_idx[1][1]  # 次短边对应的坐标轴索引
+            longest_axis_idx = dims_with_idx[2][1]  # 最长边对应的坐标轴索引
+
+            # 判断物体是否足够高以应用完整的边界框对齐策略
+            # 设置高度阈值（单位：米）
+            height_threshold = 0.35  # 35厘米
+            
+            # 计算物体在世界坐标系中的垂直高度（z轴方向），而不是最长边
+            # 物体的z轴高度定义为边界框在z方向的尺寸
+            object_z_height = obb_dims[2]  # 假设物体坐标系的第3个维度对应垂直方向
+            
+            # 判断垂直高度是否超过阈值
+            is_tall_object = object_z_height > height_threshold
+
+            # 如果是扁平物体，则预先计算质心在OBB坐标系中的坐标，用于后续采样
+            if not is_tall_object:
+                # 将质心从世界坐标系转换到OBB坐标系
+                if center_point is not None:
+                    # center_point是世界坐标系中的质心，需要转换到OBB坐标系
+                    center_relative_to_obb = center_point - center_rotated
+                    center_in_obb = np.dot(center_relative_to_obb, rotation_matrix)
+                else:
+                    # 如果未提供质心，使用OBB的中心
+                    center_in_obb = (min_point_rotated + max_point_rotated) / 2
         
         for idx in range(num_grasps):
             # 采样抓取中心和抓取旋转
-            if use_bbox:
-                # 在边界框内均匀采样
+            if use_obb:
+                # 在OBB内采样，最短边使用正态分布
+                rotated_coords = [0, 0, 0]
+                
+                # 对最短边使用正态分布采样，使中间位置密集
+                min_val = min_point_rotated[shortest_axis_idx]
+                max_val = max_point_rotated[shortest_axis_idx]
+                
+                # 均值为边长中点
+                mean = (min_val + max_val) / 2
+                # 标准差设置为边长的1/6，这样边长范围约为正负3个标准差，覆盖99.7%的正态分布
+                std = (max_val - min_val) / 6
+                
+                # 使用截断正态分布确保值在边界内
+                while True:
+                    sample = np.random.normal(mean, std)
+                    if min_val <= sample <= max_val:
+                        rotated_coords[shortest_axis_idx] = sample
+                        break
+                
+                # 判断是否为扁平物体（竖直向下抓取情况）
+                if not is_tall_object:
+                    # 在正视图中，除了最短边外的另一条边（可能是最长边或次短边）
+                    # 确定哪一个轴是竖直轴
+                    vertical_axis_idx = None
+                    axes = [rotation_matrix[:, i] for i in range(3)]
+                    
+                    # 计算每个轴与世界坐标系Z轴的点积，找到最接近竖直方向的轴
+                    z_world = np.array([0, 0, 1])
+                    z_dots = [abs(np.dot(axis, z_world)) for axis in axes]
+                    vertical_axis_idx = np.argmax(z_dots)
+                    
+                    # 找到在水平面上的两个轴（除了竖直轴）
+                    horizontal_axes = [i for i in range(3) if i != vertical_axis_idx]
+                    
+                    # 现在我们有两个水平轴，其中一个是最短边
+                    # 另一个就是我们要找的"另一条边"
+                    other_axis_idx = horizontal_axes[0] if horizontal_axes[0] != shortest_axis_idx else horizontal_axes[1]
+                    
+                    # 对这个"另一条边"使用以质心为中心的正态分布采样
+                    min_other = min_point_rotated[other_axis_idx]
+                    max_other = max_point_rotated[other_axis_idx]
+                    
+                    # 使用质心在该轴上的投影作为均值
+                    mean_other = center_in_obb[other_axis_idx]
+                    # 如果质心投影超出了边界框范围，使用边界框中点作为均值
+                    if mean_other < min_other or mean_other > max_other:
+                        mean_other = (min_other + max_other) / 2
+                    
+                    # 标准差设置为边长的1/6
+                    std_other = (max_other - min_other) / 6
+                    
+                    # 使用截断正态分布采样
+                    while True:
+                        sample = np.random.normal(mean_other, std_other)
+                        if min_other <= sample <= max_other:
+                            rotated_coords[other_axis_idx] = sample
+                            break
+                    
+                    # 竖直轴（Z轴）使用均匀分布或偏向顶部的分布
+                    # 由于是竖直向下抓取，我们可能更希望从物体顶部附近开始抓取
+                    min_z = min_point_rotated[vertical_axis_idx]
+                    max_z = max_point_rotated[vertical_axis_idx]
+                    # 偏向顶部的采样（使用Beta分布或其他偏向分布）
+                    # 这里简化为均匀分布，但更靠近顶部
+                    top_bias = 0.7  # 偏向顶部的程度，0.5为均匀，越大越靠近顶部
+                    z_sample = min_z + (max_z - min_z) * (1 - np.random.beta(1, top_bias))
+                    rotated_coords[vertical_axis_idx] = z_sample
+                else:
+                    # 对于高物体，其余两轴仍使用均匀分布
+                    rotated_coords[second_shortest_idx] = np.random.uniform(
+                        min_point_rotated[second_shortest_idx],
+                        max_point_rotated[second_shortest_idx]
+                    )
+                    rotated_coords[longest_axis_idx] = np.random.uniform(
+                        min_point_rotated[longest_axis_idx], 
+                        max_point_rotated[longest_axis_idx]
+                    )
+                
+                grasp_center_rotated = np.array(rotated_coords)
+                
+                # 将采样点从旋转坐标系变换回世界坐标系
+                grasp_center = np.dot(grasp_center_rotated, rotation_matrix.T) + center_rotated
+            elif use_bbox:
+                # 旧方法：在轴对齐边界框内均匀采样
                 x = np.random.uniform(min_point[0], max_point[0])
                 y = np.random.uniform(min_point[1], max_point[1])
                 z = np.random.uniform(min_point[2], max_point[2])
@@ -61,35 +191,139 @@ class GraspGeneration:
             grasp_center[2] = max(grasp_center[2], table_height)
             print(f"grasp_center: {grasp_center}")
 
-            # 姿态采样保持不变
-            # offset = np.random.uniform(-np.pi/4, np.pi/4)
-            offset = 0
-            
-            Rx = np.array([
-                [1,  0,  0],
-                [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
-                [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
-            ])
-            
-            # 生成X轴旋转的随机角度
-            theta = np.random.uniform(0, 2 * np.pi)  # 随机角度（弧度）
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
+            # 基于OBB确定抓取姿态
+            if use_obb and rotation_matrix is not None:
+                # 1. 计算OBB三个维度的大小
+                obb_dims = max_point_rotated - min_point_rotated
+                
+                # 2. 确定维度的长短排序
+                dims_with_idx = [(obb_dims[i], i) for i in range(3)]
+                dims_with_idx.sort()  # 按照维度长度升序排序
+                
+                # 获取最短边索引和次短边索引
+                shortest_axis_idx = dims_with_idx[0][1]  # 最短边对应的坐标轴索引
+                second_shortest_idx = dims_with_idx[1][1]  # 次短边对应的坐标轴索引
+                longest_axis_idx = dims_with_idx[2][1]  # 最长边对应的坐标轴索引
+                
+                # 3. 从rotation_matrix提取三个坐标轴方向
+                axes = [rotation_matrix[:, i] for i in range(3)]  # OBB的三个轴方向
+                
+                # 判断物体是否足够高以应用完整的边界框对齐策略
+                # 设置高度阈值（单位：米）
+                height_threshold = 0.35  # 35厘米
+                
+                # 计算物体在世界坐标系中的垂直高度（z轴方向），而不是最长边
+                # 物体的z轴高度定义为边界框在z方向的尺寸
+                # object_height = max_point[2] - min_point[2]  # 这是在check_grasp_containment中计算的
+                object_z_height = obb_dims[2]  # 假设物体坐标系的第3个维度对应垂直方向
+                
+                # 判断垂直高度是否超过阈值
+                is_tall_object = object_z_height > height_threshold
+                
+                # 4. 构建新的旋转矩阵
+                if is_tall_object:
+                    # 对于高物体，使用完整的边界框对齐策略
+                    # 爪子X轴（指尖打开方向）对应最短边
+                    grasp_x_axis = axes[shortest_axis_idx]
+                    # 爪子Y轴（指尖延伸方向）对应次短边
+                    grasp_y_axis = axes[second_shortest_idx]
+                    # 爪子Z轴通过叉乘确定
+                    grasp_z_axis = np.cross(grasp_x_axis, grasp_y_axis)
+                    
+                    # 确保坐标系是右手系
+                    dot_product = np.dot(grasp_z_axis, axes[longest_axis_idx])
+                    if dot_product < 0:
+                        grasp_z_axis = -grasp_z_axis
+                    
+                    # 构建基于物体主轴的旋转矩阵
+                    R = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
+                else:
+                    # 对于扁平物体，使用简化策略
+                    # 将Z轴与世界坐标系的Z轴对齐，指向上方
+                    grasp_z_axis = np.array([0, 0, 1])  # 竖直向上
+                    
+                    # 尝试让X轴（指尖打开方向）从物体最短边获取方向
+                    # 但首先确保该方向不与Z轴平行
+                    candidate_x = axes[shortest_axis_idx]
+                    dot_xz = np.dot(candidate_x, grasp_z_axis)
+                    
+                    if abs(dot_xz) > 0.9:  # 最短边几乎垂直，改用次短边
+                        candidate_x = axes[second_shortest_idx]
+                        dot_xz = np.dot(candidate_x, grasp_z_axis)
+                        
+                        if abs(dot_xz) > 0.9:  # 次短边也几乎垂直，使用固定横向方向
+                            grasp_x_axis = np.array([1, 0, 0])
+                        else:
+                            # 投影次短边到水平面作为X轴
+                            grasp_x_axis = candidate_x - grasp_z_axis * dot_xz
+                    else:
+                        # 投影最短边到水平面作为X轴
+                        grasp_x_axis = candidate_x - grasp_z_axis * dot_xz
+                    
+                    # 确保X轴非零且归一化
+                    if np.linalg.norm(grasp_x_axis) < 1e-6:
+                        grasp_x_axis = np.array([1, 0, 0])
+                    else:
+                        grasp_x_axis = grasp_x_axis / np.linalg.norm(grasp_x_axis)
+                    
+                    # 通过叉乘计算Y轴（保证正交性）
+                    grasp_y_axis = np.cross(grasp_z_axis, grasp_x_axis)
+                    grasp_y_axis = grasp_y_axis / np.linalg.norm(grasp_y_axis)
+                    
+                    # 重新计算X轴以确保严格正交
+                    grasp_x_axis = np.cross(grasp_y_axis, grasp_z_axis)
+                    grasp_x_axis = grasp_x_axis / np.linalg.norm(grasp_x_axis)
+                    
+                    # 旋转爪子使Y轴沿负Z方向（指向下方）
+                    # 爪子坐标系：X-指尖打开方向，Y-手指延伸方向，Z-手掌方向
+                    # 创建旋转矩阵：[-x, -z, -y]，使手指向下
+                    R_adjust = np.array([
+                        [1, 0, 0],
+                        [0, 0, -1],
+                        [0, 1, 0]
+                    ])
+                    
+                    # 构建我们的基础旋转矩阵 
+                    R_base = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
+                    
+                    # 应用调整旋转
+                    R = R_base @ R_adjust
+                
+                # 打印抓取策略信息
+                if idx == 0:  # 只打印一次
+                    if is_tall_object:
+                        print(f"物体z轴高度({object_z_height:.3f}m)超过阈值({height_threshold:.3f}m)，使用完整边界框对齐策略")
+                    else:
+                        print(f"物体z轴高度({object_z_height:.3f}m)低于阈值({height_threshold:.3f}m)，使用简化抓取策略（指尖沿最短边，从上方抓取）")
+            else:
+                # 使用原来的随机旋转方法
+                offset = 0
+                
+                Rx = np.array([
+                    [1,  0,  0],
+                    [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
+                    [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
+                ])
+                
+                # 生成X轴旋转的随机角度
+                theta = np.random.uniform(0, 2 * np.pi)  # 随机角度（弧度）
+                cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-            # X轴旋转矩阵
-            Ry = np.array([
-                [cos_t, 0, sin_t],
-                [ 0, 1, 0],
-                [-sin_t, 0, cos_t]
-            ])
+                # X轴旋转矩阵
+                Ry = np.array([
+                    [cos_t, 0, sin_t],
+                    [ 0, 1, 0],
+                    [-sin_t, 0, cos_t]
+                ])
 
-            Rx_again = np.array([
-                [1, 0, 0],
-                [0, np.cos(offset), -np.sin(offset)],
-                [0, np.sin(offset), np.cos(offset)]
-            ])
+                Rx_again = np.array([
+                    [1, 0, 0],
+                    [0, np.cos(offset), -np.sin(offset)],
+                    [0, np.sin(offset), np.cos(offset)]
+                ])
 
-            # 最终旋转矩阵：先应用Rx，然后Ry，最后Rx_again
-            R = Rx @ Ry @ Rx_again
+                # 最终旋转矩阵：先应用Rx，然后Ry，最后Rx_again
+                R = Rx @ Ry @ Rx_again
 
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
@@ -239,7 +473,7 @@ class GraspGeneration:
         
         # 定义宽度方向的参数
         width_planes = 1  # 宽度方向每侧的平面数量
-        width_offset = 0.02  # 平面间的偏移量（米）
+        width_offset = 0.015  # 平面间的偏移量（米）
         
         # ===== 生成多个平行的射线平面 =====
         print("生成多个平行的射线平面...")
