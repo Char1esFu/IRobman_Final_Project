@@ -37,6 +37,7 @@ pip install -e pybullet-object-models/
     │   ├── grasping_mesh.py
     │   └── grasping.py
     ├── path_planning
+    │   ├── planning_executor.py
     │   ├── rrt_star_cartesian.py
     │   ├── rrt_star.py
     │   └── simple_planning.py
