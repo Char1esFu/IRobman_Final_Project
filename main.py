@@ -18,7 +18,7 @@ from src.path_planning.rrt_star_cartesian import RRTStarCartesianPlanner
 from src.obstacle_tracker import ObstacleTracker
 from src.grasping.grasping import GraspGeneration, GraspExecution
 from src.ik_solver import DifferentialIKSolver
-from src.grasping import grasping_utils
+from src.grasping import grasping_mesh
 
 def run_exp(config: Dict[str, Any]):
     # Example Experiment Runner File
@@ -222,7 +222,7 @@ def execute_grasping(sim, bbox, point_clouds, visualize=True):
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
-        all_grasp_meshes.append(grasping_utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+        all_grasp_meshes.append(grasping_mesh.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
     
     # 评估抓取质量
     print("\n评估抓取质量...")
@@ -429,6 +429,19 @@ def execute_path_planning(sim, grasp_executor, planning_type='joint', visualize=
         return False
     
     print(f"找到路径！代价: {cost:.4f}，路径点数: {len(path)}")
+    
+    # 添加轨迹可视化代码
+    if visualize:
+        # 清除之前的可视化
+        planner.clear_visualization()
+        
+        # 可视化路径
+        for i in range(len(path) - 1):
+            start_ee, _ = planner._get_current_ee_pose(path[i])
+            end_ee, _ = planner._get_current_ee_pose(path[i+1])
+            
+            p.addUserDebugLine(
+                start_ee, end_ee, [0, 0, 1], 3, 0)
     
     # 生成平滑轨迹
     print("\n生成平滑轨迹...")
