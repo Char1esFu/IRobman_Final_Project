@@ -155,8 +155,13 @@ def compute_bounding_box(sim, collector, point_clouds, visualize_cloud=True):
 if __name__ == "__main__":
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='机器人点云采集和边界框计算')
-    parser.add_argument('--object', type=str, default="YcbBanana",
-                        help='目标物体名称(如YcbBanana)')
+    # All objects: 
+    # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
+    # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
+    # High objects: YcbCrackerBox, YcbMustardBottle, 
+    # Unstable objects: YcbChipsCan, YcbPowerDrill
+    parser.add_argument('--object', type=str, default="YcbGelatinBox",
+                        help='目标物体名称')
     parser.add_argument('--no-vis', action='store_true',
                         help='禁用点云可视化')
     

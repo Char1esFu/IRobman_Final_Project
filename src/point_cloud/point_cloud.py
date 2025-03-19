@@ -6,6 +6,7 @@ import open3d as o3d
 import time
 import random
 from scipy.spatial.transform import Rotation
+from src.path_planning.planning import TrajectoryPlanner
 
 class PointCloudCollector:
     def __init__(self, config, sim):
@@ -216,64 +217,6 @@ class PointCloudCollector:
         camera_R = ee_R @ ee_cam_R
         
         return camera_pos, camera_R
-    
-    def _generate_trajectory(self, start_joints, end_joints, steps=100):
-        """
-        生成从起始到结束关节位置的平滑轨迹
-        
-        参数:
-        start_joints: 起始关节位置
-        end_joints: 结束关节位置
-        steps: 插值步数
-        
-        返回:
-        trajectory: 关节位置列表
-        """
-        trajectory = []
-        for step in range(steps + 1):
-            t = step / steps  # 归一化步长
-            # 线性插值
-            point = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
-            trajectory.append(point)
-        return trajectory
-    
-    def _generate_cartesian_trajectory(self, start_joints, target_pos, target_orn, steps=100):
-        """
-        在笛卡尔空间中生成线性轨迹
-        """
-        # 设置起始位置
-        for i, joint_idx in enumerate(self.sim.robot.arm_idx):
-            p.resetJointState(self.sim.robot.id, joint_idx, start_joints[i])
-        
-        # 获取当前末端执行器姿态
-        ee_state = p.getLinkState(self.sim.robot.id, self.sim.robot.ee_idx)
-        print(f"ee_state_0={np.array(ee_state[0])}, ee_state_1={np.array(ee_state[1])}")
-        start_pos = np.array(ee_state[0])
-        
-        # 生成线性轨迹
-        trajectory = []
-        
-        # 初始化IK求解器
-        from src.ik_solver import DifferentialIKSolver
-        ik_solver = DifferentialIKSolver(self.sim.robot.id, self.sim.robot.ee_idx, damping=0.05)
-        
-        for step in range(steps + 1):
-            t = step / steps  # 归一化步长
-            
-            # 线性插值
-            pos = start_pos + t * (target_pos - start_pos)
-            
-            # 解算当前笛卡尔位置的IK
-            current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.001)
-            
-            # 将解决方案添加到轨迹
-            trajectory.append(current_joints)
-            
-            # 重置到起始位置
-            for i, joint_idx in enumerate(self.sim.robot.arm_idx):
-                p.resetJointState(self.sim.robot.id, joint_idx, start_joints[i])
-        
-        return trajectory
 
     def visualize_point_clouds(self, collected_data, show_frames=True, show_merged=True):
         """
@@ -424,7 +367,7 @@ class PointCloudCollector:
         
         # 生成轨迹
         print("为高点观察位置生成轨迹...")
-        high_point_trajectory = self._generate_trajectory(initial_joints, high_point_target_joints, steps=100)
+        high_point_trajectory = TrajectoryPlanner.generate_joint_trajectory(initial_joints, high_point_target_joints, steps=100)
         if not high_point_trajectory:
             print("无法生成到高点观察位置的轨迹，跳过高点点云采集")
         else:
@@ -569,10 +512,18 @@ class PointCloudCollector:
             trajectory = []
             if choice == 1:
                 print("生成线性笛卡尔轨迹...")
-                trajectory = self._generate_cartesian_trajectory(saved_joints, target_pos, target_orn, steps=100)
+                trajectory = TrajectoryPlanner.generate_cartesian_trajectory(
+                    self.sim.robot.id, 
+                    self.sim.robot.arm_idx, 
+                    self.sim.robot.ee_idx, 
+                    saved_joints, 
+                    target_pos, 
+                    target_orn, 
+                    steps=100
+                )
             elif choice == 2:
                 print("生成线性关节空间轨迹...")
-                trajectory = self._generate_trajectory(saved_joints, target_joints, steps=100)
+                trajectory = TrajectoryPlanner.generate_joint_trajectory(saved_joints, target_joints, steps=100)
             
             if not trajectory:
                 print(f"无法为视点 {viewpoint_idx + 1} 生成轨迹。跳过...")
