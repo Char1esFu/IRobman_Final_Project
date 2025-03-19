@@ -314,12 +314,73 @@ class BoundingBox:
     
     def get_aabb(self):
         """
-        获取轴对齐边界框的最小和最大点
+        获取轴对齐边界框的最小点和最大点
         
         返回:
-        min_point, max_point: 轴对齐边界框的最小和最大点
+        (min_point, max_point): 边界框的最小点和最大点
         """
         if self.aabb_min is None or self.aabb_max is None:
             raise ValueError("请先调用compute_obb()计算边界框")
         
         return self.aabb_min, self.aabb_max
+    
+    @staticmethod
+    def compute_point_cloud_bbox(sim, collector, point_clouds, visualize_cloud=True):
+        """
+        计算和可视化点云边界框
+        
+        参数:
+        sim: 仿真环境对象
+        collector: 点云收集器对象
+        point_clouds: 收集的点云数据
+        visualize_cloud: 是否可视化点云
+        
+        返回:
+        bbox: 计算的边界框对象
+        """
+        print("\n步骤2: 计算和可视化边界框...")
+        
+        # 可视化收集的点云
+        if visualize_cloud and point_clouds:
+            # 显示单独的点云
+            print("\n可视化单独点云...")
+            collector.visualize_point_clouds(point_clouds, show_merged=False)
+        
+        # 合并点云
+        print("\n合并点云...")
+        merged_cloud = collector.merge_point_clouds(point_clouds)
+        
+        # 可视化合并点云
+        if visualize_cloud and merged_cloud is not None:
+            print("\n可视化合并点云...")
+            # 创建一个只包含合并点云的列表
+            merged_cloud_data = [{
+                'point_cloud': merged_cloud,
+                'camera_position': np.array([0, 0, 0]),  # 占位符
+                'camera_rotation': np.eye(3)  # 占位符
+            }]
+            collector.visualize_point_clouds(merged_cloud_data, show_merged=False)
+        
+        # 计算边界框
+        print("\n计算边界框...")
+        bbox = BoundingBox(merged_cloud)
+        bbox.compute_obb()
+        
+        # 可视化边界框
+        print("\n可视化边界框...")
+        bbox.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
+        
+        # 可视化中心点
+        centroid_id = bbox.add_centroid_visualization(radius=0.02)
+        
+        # 可视化主轴
+        axis_lines = bbox.add_axes_visualization(length=0.15)
+        
+        # 打印边界框信息
+        print(f"\n边界框信息:")
+        print(f"物体高度: {bbox.get_height():.4f}米")
+        print(f"边界框尺寸: {bbox.get_dimensions()}")
+        center = bbox.get_center()
+        print(f"质心坐标: ({center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f})")
+        
+        return bbox

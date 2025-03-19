@@ -789,3 +789,142 @@ class GraspExecution:
         
         self._execute_trajectory(lift_trajectory, speed=1/240.0)
         return True
+
+    def execute_complete_grasp(self, bbox, point_clouds, visualize=True):
+        """
+        执行抓取规划和执行的完整流程
+        
+        参数:
+        bbox: 边界框对象
+        point_clouds: 收集的点云数据
+        visualize: 是否可视化抓取过程
+        
+        返回:
+        success: 抓取是否成功
+        self: 抓取执行器对象（如果抓取成功）
+        """
+        import open3d as o3d
+        from src.grasping import grasping_mesh
+        from src.point_cloud.object_mesh import visualize_3d_objs
+        
+        print("\n步骤3: 抓取规划和执行...")
+        
+        # 合并点云
+        print("\n准备合并点云...")
+        merged_pcd = None
+        for data in point_clouds:
+            if 'point_cloud' in data and data['point_cloud'] is not None:
+                if merged_pcd is None:
+                    merged_pcd = data['point_cloud']
+                else:
+                    merged_pcd += data['point_cloud']
+        
+        if merged_pcd is None:
+            print("错误：无法合并点云，终止抓取")
+            return False, None
+        
+        # 获取边界框信息
+        center = bbox.get_center()
+        rotation_matrix = bbox.get_rotation_matrix()
+        min_point, max_point = bbox.get_aabb()
+        obb_corners = bbox.get_corners()
+        
+        # 获取旋转边界框内的坐标
+        points_rotated = np.dot(np.asarray(merged_pcd.points) - center, rotation_matrix)
+        min_point_rotated = np.min(points_rotated, axis=0)
+        max_point_rotated = np.max(points_rotated, axis=0)
+        
+        print(f"\n边界框信息:")
+        print(f"质心坐标: {center}")
+        print(f"旋转坐标系中最小点: {min_point_rotated}")
+        print(f"旋转坐标系中最大点: {max_point_rotated}")
+        
+        grasp_generator = GraspGeneration()
+        
+        # 生成抓取候选
+        print("\n生成抓取候选...")
+        sampled_grasps = grasp_generator.sample_grasps(
+            center, 
+            num_grasps=100, 
+            sim=self.sim,
+            rotation_matrix=rotation_matrix,
+            min_point_rotated=min_point_rotated,
+            max_point_rotated=max_point_rotated,
+            center_rotated=center
+        )
+        
+        # 为每个抓取创建网格
+        all_grasp_meshes = []
+        for grasp in sampled_grasps:
+            R, grasp_center = grasp
+            all_grasp_meshes.append(grasping_mesh.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+        
+        # 评估抓取质量
+        print("\n评估抓取质量...")
+        
+        best_grasp = None
+        best_grasp_mesh = None
+        highest_quality = 0
+        
+        for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+            if not grasp_generator.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
+                R, grasp_center = pose
+                
+                valid_grasp, grasp_quality, _ = grasp_generator.check_grasp_containment(
+                    grasp_mesh[0].get_center(), 
+                    grasp_mesh[1].get_center(),
+                    finger_length=0.05,
+                    object_pcd=merged_pcd,
+                    num_rays=50,
+                    rotation_matrix=pose[0],
+                    visualize_rays=False
+                )
+                
+                if valid_grasp and grasp_quality > highest_quality:
+                    highest_quality = grasp_quality
+                    best_grasp = pose
+                    best_grasp_mesh = grasp_mesh
+                    print(f"找到更好的抓取，质量: {grasp_quality:.3f}")
+        
+        if best_grasp is None:
+            print("未找到有效抓取！")
+            return False, None
+        
+        print(f"\n找到最佳抓取，质量分数: {highest_quality:.4f}")
+        
+        # 计算抓取姿态
+        pose1_pos, pose1_orn, pose2_pos, pose2_orn = self.compute_grasp_poses(best_grasp)
+        
+        # 可视化抓取姿态
+        if visualize:
+            grasp_generator.visualize_grasp_poses(
+                pose1_pos, pose1_orn, pose2_pos, pose2_orn, axis_length=0.1
+            )
+        
+        # 执行抓取
+        print("\n开始执行抓取...")
+        success = self.execute_grasp(best_grasp)
+        
+        if success:
+            print("\n抓取成功！")
+        else:
+            print("\n抓取失败...")
+        
+        # 在找到最佳抓取后添加可视化代码
+        if best_grasp is not None and visualize:
+            # 创建点云的三角网格
+            obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+                pcd=merged_pcd, 
+                alpha=0.08
+            )
+            
+            # 准备可视化的网格列表
+            vis_meshes = [obj_triangle_mesh]
+            
+            # 将最佳抓取网格添加到列表
+            vis_meshes.extend(best_grasp_mesh)
+            
+            # 调用可视化函数
+            visualize_3d_objs(vis_meshes)
+        
+        return success, self if success else None
