@@ -34,14 +34,15 @@ pip install -e pybullet-object-models/
     ├── utils.py # helpful utils
     │ # new features below
     ├── grasping
-    │   ├── grasping.py
-    │   └── grasping_utils.py
+    │   ├── grasping_mesh.py
+    │   └── grasping.py
     ├── path_planning
     │   ├── rrt_star_cartesian.py
     │   ├── rrt_star.py
     │   └── simple_planning.py
     ├── point_cloud
     │   ├── bounding_box.py
+    │   ├── object_mesh.py
     │   └── point_cloud.py
     ├── ik_solver.py
     └── obstacle_tracker.py
