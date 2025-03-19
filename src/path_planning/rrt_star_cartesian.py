@@ -55,9 +55,9 @@ class RRTStarCartesianPlanner:
         self.goal_threshold = goal_threshold
         self.collision_check_step = collision_check_step
         
-        # 默认工作空间限制，如果没有提供
+        # Default workspace limits if not provided
         if workspace_limits is None:
-            # 设置一个默认的工作空间范围
+            # Set a default workspace range
             self.workspace_limits = [
                 [0.2, 0.8],  # x_min, x_max
                 [-0.5, 0.5],  # y_min, y_max
@@ -66,74 +66,74 @@ class RRTStarCartesianPlanner:
         else:
             self.workspace_limits = workspace_limits
         
-        # 初始化IK求解器
+        # Initialize IK solver
         self.ik_solver = DifferentialIKSolver(robot_id, ee_link_index, damping=0.05)
         
-        # 树的结构
-        self.nodes_cart = []  # 笛卡尔空间中的节点
-        self.nodes_joint = []  # 对应的关节空间位置
-        self.costs = []  # 从起点到每个节点的代价
-        self.parents = []  # 每个节点的父节点索引
+        # Tree structure
+        self.nodes_cart = []  # Nodes in Cartesian space
+        self.nodes_joint = []  # Corresponding joint space positions
+        self.costs = []  # Cost from start to each node
+        self.parents = []  # Parent node index for each node
         
-        # 可视化
+        # Visualization
         self.debug_lines = []
         
     def _get_current_ee_pose(self, joint_positions: List[float]) -> Tuple[np.ndarray, np.ndarray]:
-        """获取给定关节位置的末端执行器姿态。
+        """Get end effector pose for given joint positions.
         
         Args:
-            joint_positions: 关节位置
+            joint_positions: Joint positions
             
         Returns:
-            末端执行器位置和方向的元组
+            Tuple of end effector position and orientation
         """
-        # 保存当前状态
+        # Save current state
         current_states = []
         for i in self.joint_indices:
             current_states.append(p.getJointState(self.robot_id, i)[0])
             
-        # 设置关节位置
+        # Set joint positions
         for i, idx in enumerate(self.joint_indices):
             p.resetJointState(self.robot_id, idx, joint_positions[i])
             
-        # 获取末端执行器姿态
+        # Get end effector pose
         ee_state = p.getLinkState(self.robot_id, self.ee_link_index)
         ee_pos = np.array(ee_state[0])
         ee_orn = np.array(ee_state[1])
         
-        # 恢复原始状态
+        # Restore original state
         for i, idx in enumerate(self.joint_indices):
             p.resetJointState(self.robot_id, idx, current_states[i])
             
         return ee_pos, ee_orn
     
     def _is_collision_free_joint(self, start_joints: List[float], end_joints: List[float]) -> bool:
-        """检查两个关节配置之间的路径是否无碰撞。
+        """Check if path between two joint configurations is collision-free.
         
         Args:
-            start_joints: 起始关节配置
-            end_joints: 结束关节配置
+            start_joints: Starting joint configuration
+            end_joints: Ending joint configuration
             
         Returns:
-            如果路径无碰撞则为True，否则为False
+            True if path is collision-free, False otherwise
         """
-        # 获取关节空间中的距离
+        # Get distance in joint space
         dist = np.linalg.norm(np.array(end_joints) - np.array(start_joints))
         
-        # 碰撞检查的步数
+        # Number of steps for collision checking
         n_steps = max(2, int(dist / self.collision_check_step))
         
-        # 检查路径上的每一步
+        # Check each step along the path
         for i in range(n_steps + 1):
             t = i / n_steps
-            # 线性插值
+            # Linear interpolation
             joint_pos = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
             
-            # 检查高度约束
+            # Check height constraint
             if not self._is_ee_height_valid(joint_pos):
                 return False
                 
-            # 检查与障碍物的碰撞
+            # Check collision with obstacles
             if self._is_state_in_collision(joint_pos):
                 return False
                 
@@ -141,94 +141,94 @@ class RRTStarCartesianPlanner:
     
     def _is_collision_free_cart(self, start_pos: np.ndarray, end_pos: np.ndarray, 
                                start_joints: List[float], end_joints: List[float]) -> bool:
-        """检查笛卡尔空间中两点之间的路径是否无碰撞。
+        """Check if path between two points in Cartesian space is collision-free.
         
         Args:
-            start_pos: 起始位置
-            end_pos: 结束位置
-            start_joints: 起始关节配置
-            end_joints: 结束关节配置
+            start_pos: Starting position
+            end_pos: Ending position
+            start_joints: Starting joint configuration
+            end_joints: Ending joint configuration
             
         Returns:
-            如果路径无碰撞则为True，否则为False
+            True if path is collision-free, False otherwise
         """
-        # 获取笛卡尔空间中的距离
+        # Get distance in Cartesian space
         dist = np.linalg.norm(end_pos - start_pos)
         
-        # 碰撞检查的步数
+        # Number of steps for collision checking
         n_steps = max(2, int(dist / self.collision_check_step))
         
-        # 获取当前末端执行器姿态
+        # Get current end effector orientation
         _, start_orn = self._get_current_ee_pose(start_joints)
         
-        # 检查路径上的每一步
+        # Check each step along the path
         for i in range(n_steps + 1):
             t = i / n_steps
-            # 线性插值
+            # Linear interpolation
             pos = start_pos + t * (end_pos - start_pos)
             
-            # 获取当前位置的IK解
+            # Get IK solution for current position
             if i == 0:
                 joint_pos = start_joints
             elif i == n_steps:
                 joint_pos = end_joints
             else:
-                # 解算当前笛卡尔位置的IK
+                # Solve IK for current Cartesian position
                 try:
-                    # 使用线性插值的关节位置作为初始猜测
+                    # Use linearly interpolated joint position as initial guess
                     init_guess = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
                     joint_pos = self.ik_solver.solve(pos, start_orn, init_guess, max_iters=20, tolerance=0.005)
                 except:
-                    # IK求解失败
+                    # IK solution failed
                     return False
             
-            # 检查高度约束
+            # Check height constraint
             if not self._is_ee_height_valid(joint_pos):
                 return False
                 
-            # 检查与障碍物的碰撞
+            # Check collision with obstacles
             if self._is_state_in_collision(joint_pos):
                 return False
                 
         return True
     
     def _is_state_in_collision(self, joint_pos: List[float]) -> bool:
-        """检查关节状态是否与障碍物碰撞。
+        """Check if joint state is in collision with obstacles.
         
         Args:
-            joint_pos: 要检查的关节位置
+            joint_pos: Joint positions to check
             
         Returns:
-            如果碰撞则为True，否则为False
+            True if in collision, False otherwise
         """
-        # 获取末端执行器位置和方向
+        # Get end effector position and orientation
         ee_pos, _ = self._get_current_ee_pose(joint_pos)
         
-        # 获取用于碰撞检查的机器人链接位置
-        # 我们将检查机器人运动链上的几个关键链接
+        # Get robot link positions for collision checking
+        # We'll check several key links along the robot chain
         links_to_check = self.joint_indices + [self.ee_link_index]
         
-        # 保存当前状态
+        # Save current state
         current_states = []
         for i in self.joint_indices:
             current_states.append(p.getJointState(self.robot_id, i)[0])
             
-        # 设置关节位置
+        # Set joint positions
         for i, idx in enumerate(self.joint_indices):
             p.resetJointState(self.robot_id, idx, joint_pos[i])
         
-        # 检查与障碍物的碰撞
+        # Check collision with obstacles
         collision = False
         
-        # 从跟踪器获取障碍物状态
+        # Get obstacle states from tracker
         obstacle_states = self.obstacle_tracker.get_all_obstacle_states()
         if obstacle_states is None or len(obstacle_states) == 0:
-            # 恢复原始状态
+            # Restore original state
             for i, idx in enumerate(self.joint_indices):
                 p.resetJointState(self.robot_id, idx, current_states[i])
             return False
         
-        # 检查每个链接与每个障碍物
+        # Check each link against each obstacle
         for link_idx in links_to_check:
             link_state = p.getLinkState(self.robot_id, link_idx)
             link_pos = np.array(link_state[0])
@@ -237,15 +237,15 @@ class RRTStarCartesianPlanner:
                 if obstacle is None:
                     continue
                 
-                # 简单的球体碰撞检查
+                # Simple sphere collision check
                 obstacle_pos = obstacle['position']
                 obstacle_radius = obstacle['radius']
                 
-                # 链接与障碍物中心之间的距离
+                # Distance between link and obstacle center
                 dist = np.linalg.norm(link_pos - obstacle_pos)
                 
-                # 将机器人链接近似为一个点（简化）
-                # 增加一个小的安全边距（0.05米）
+                # Approximate robot link as a point (simplified)
+                # Add a small safety margin (0.05 meters)
                 if dist < obstacle_radius + 0.05:
                     collision = True
                     break
@@ -253,31 +253,31 @@ class RRTStarCartesianPlanner:
             if collision:
                 break
                 
-        # 恢复原始状态
+        # Restore original state
         for i, idx in enumerate(self.joint_indices):
             p.resetJointState(self.robot_id, idx, current_states[i])
             
         return collision
     
     def _distance_cart(self, p1: np.ndarray, p2: np.ndarray) -> float:
-        """计算笛卡尔空间中两点之间的距离。
+        """Calculate distance between two points in Cartesian space.
         
         Args:
-            p1: 第一个点
-            p2: 第二个点
+            p1: First point
+            p2: Second point
             
         Returns:
-            笛卡尔空间中的欧几里得距离
+            Euclidean distance in Cartesian space
         """
         return np.linalg.norm(p1 - p2)
     
     def _sample_random_cart_point(self) -> np.ndarray:
-        """在笛卡尔空间中采样随机点。
+        """Sample a random point in Cartesian space.
         
         Returns:
-            随机的笛卡尔坐标
+            Random Cartesian coordinates
         """
-        # 在工作空间限制内采样
+        # Sample within workspace limits
         x = random.uniform(self.workspace_limits[0][0], self.workspace_limits[0][1])
         y = random.uniform(self.workspace_limits[1][0], self.workspace_limits[1][1])
         z = random.uniform(self.workspace_limits[2][0], self.workspace_limits[2][1])
@@ -285,67 +285,67 @@ class RRTStarCartesianPlanner:
         return np.array([x, y, z])
     
     def _is_ee_height_valid(self, joint_pos: List[float]) -> bool:
-        """检查末端执行器高度是否有效（高于桌面）。
+        """Check if end effector height is valid (above table).
         
         Args:
-            joint_pos: 要检查的关节位置
+            joint_pos: Joint positions to check
             
         Returns:
-            如果末端执行器高度有效则为True，否则为False
+            True if end effector height is valid, False otherwise
         """
-        # 获取末端执行器位置
+        # Get end effector position
         ee_pos, _ = self._get_current_ee_pose(joint_pos)
         
-        # 获取机器人基座位置（假设索引为0）
-        # 我们可以访问机器人基座位置或使用固定阈值表示桌面高度
-        # 这里，我们使用一种简单的方法来检查ee_pos[2]（z坐标）是否高于阈值
+        # Get robot base position (assuming index 0)
+        # We can access the robot base position or use a fixed threshold for table height
+        # Here, we use a simple approach to check if ee_pos[2] (z-coordinate) is above a threshold
         
-        # 获取基座链接位置
+        # Get base link position
         base_pos = p.getBasePositionAndOrientation(self.robot_id)[0]
-        table_height = base_pos[2]  # 基座Z坐标表示桌面高度
+        table_height = base_pos[2]  # Base Z coordinate represents table height
         
-        # 添加一个小阈值来考虑基座高度本身
-        min_height = table_height - 0.01  # 基座下方1厘米边距
+        # Add a small threshold to account for base height itself
+        min_height = table_height - 0.01  # 1cm margin below base
         
-        # 检查末端执行器是否高于桌面高度
+        # Check if end effector is above table height
         return ee_pos[2] > min_height
     
     def _steer(self, from_point: np.ndarray, to_point: np.ndarray) -> np.ndarray:
-        """在笛卡尔空间中从一个点向另一个点引导。
+        """Steer from one point toward another in Cartesian space.
         
-        如果点距离小于步长，则直接返回目标点。
-        否则，向目标方向移动step_size距离。
+        If points are closer than step_size, returns target point directly.
+        Otherwise, moves step_size distance in the direction of target.
         
         Args:
-            from_point: 起始点
-            to_point: 目标点
+            from_point: Starting point
+            to_point: Target point
             
         Returns:
-            新点
+            New point
         """
         dist = self._distance_cart(from_point, to_point)
         
         if dist < self.step_size:
             return to_point
         else:
-            # 计算方向向量
+            # Calculate direction vector
             dir_vec = (to_point - from_point) / dist
-            # 按步长移动
+            # Move by step size
             return from_point + dir_vec * self.step_size
     
     def _calculate_cost(self, node_idx: int) -> float:
-        """计算从起点到给定节点的总代价。
+        """Calculate total cost from start to given node.
         
         Args:
-            node_idx: 要计算代价的节点索引
+            node_idx: Index of node to calculate cost for
             
         Returns:
-            从起点到该节点的总代价
+            Total cost from start to node
         """
         cost = 0.0
         current_idx = node_idx
         
-        while current_idx != 0:  # 直到到达根节点（索引0）
+        while current_idx != 0:  # Until we reach the root node (index 0)
             parent_idx = self.parents[current_idx]
             cost += self._distance_cart(self.nodes_cart[current_idx], self.nodes_cart[parent_idx])
             current_idx = parent_idx
@@ -353,17 +353,17 @@ class RRTStarCartesianPlanner:
         return cost
     
     def _choose_parent(self, new_point: np.ndarray, nearby_indices: List[int], new_joint_state: List[float]) -> Tuple[int, float]:
-        """为新节点选择最佳父节点。
+        """Choose best parent for a new node.
         
-        选择会产生最小总代价的父节点。
+        Selects parent that results in minimum total cost.
         
         Args:
-            new_point: 新节点的笛卡尔位置
-            nearby_indices: 附近节点的索引列表
-            new_joint_state: 新节点的关节状态
+            new_point: Cartesian position of new node
+            nearby_indices: List of indices of nearby nodes
+            new_joint_state: Joint state of new node
             
         Returns:
-            (最佳父节点索引, 新节点的代价)
+            (Best parent index, cost of new node)
         """
         if not nearby_indices:
             return -1, float('inf')
@@ -372,14 +372,14 @@ class RRTStarCartesianPlanner:
         valid_indices = []
         
         for idx in nearby_indices:
-            # 检查是否可以连接到此节点
+            # Check if we can connect to this node
             if self._is_collision_free_cart(
                 self.nodes_cart[idx], 
                 new_point, 
                 self.nodes_joint[idx], 
                 new_joint_state
             ):
-                # 计算通过此父节点的代价
+                # Calculate cost through this parent
                 cost = self.costs[idx] + self._distance_cart(self.nodes_cart[idx], new_point)
                 costs.append(cost)
                 valid_indices.append(idx)
@@ -387,47 +387,47 @@ class RRTStarCartesianPlanner:
         if not valid_indices:
             return -1, float('inf')
             
-        # 找到最小代价的索引
+        # Find index of minimum cost
         min_cost_idx = np.argmin(costs)
         return valid_indices[min_cost_idx], costs[min_cost_idx]
     
     def _rewire(self, new_node_idx: int, nearby_indices: List[int]) -> None:
-        """检查是否可以通过新节点降低附近节点的代价。
+        """Check if nearby nodes can have lower cost by connecting through new node.
         
         Args:
-            new_node_idx: 新添加的节点索引
-            nearby_indices: 附近节点的索引列表
+            new_node_idx: Index of newly added node
+            nearby_indices: List of indices of nearby nodes
         """
         for idx in nearby_indices:
-            # 跳过父节点
+            # Skip parent
             if idx == self.parents[new_node_idx]:
                 continue
                 
-            # 检查是否可以连接到此节点
+            # Check if we can connect to this node
             if self._is_collision_free_cart(
                 self.nodes_cart[new_node_idx], 
                 self.nodes_cart[idx], 
                 self.nodes_joint[new_node_idx], 
                 self.nodes_joint[idx]
             ):
-                # 计算新代价
+                # Calculate new cost
                 new_cost = self.costs[new_node_idx] + self._distance_cart(self.nodes_cart[new_node_idx], self.nodes_cart[idx])
                 
-                # 如果新代价更低，则重新连接
+                # If new cost is lower, rewire
                 if new_cost < self.costs[idx]:
                     self.parents[idx] = new_node_idx
                     self.costs[idx] = new_cost
-                    # 可视化更新
+                    # Update visualization
                     self._update_visualization(idx)
     
     def _find_nearby(self, point: np.ndarray) -> List[int]:
-        """找到笛卡尔空间中给定点附近的所有节点。
+        """Find all nodes near a given point in Cartesian space.
         
         Args:
-            point: 查询点
+            point: Query point
             
         Returns:
-            距离小于search_radius的节点索引列表
+            List of indices of nodes within search_radius
         """
         nearby_indices = []
         
@@ -438,17 +438,17 @@ class RRTStarCartesianPlanner:
         return nearby_indices
     
     def _update_visualization(self, node_idx: int) -> None:
-        """更新节点及其父节点之间连接的可视化。
+        """Update visualization of connection between node and its parent.
         
         Args:
-            node_idx: 要更新可视化的节点索引
+            node_idx: Index of node to update visualization for
         """
-        # 移除旧线
+        # Remove old lines
         for line_id in self.debug_lines:
             p.removeUserDebugItem(line_id)
         self.debug_lines = []
         
-        # 创建新线以可视化树
+        # Create new lines to visualize tree
         for i in range(1, len(self.nodes_cart)):
             parent_idx = self.parents[i]
             start_pos = self.nodes_cart[parent_idx]
@@ -457,78 +457,78 @@ class RRTStarCartesianPlanner:
             line_id = p.addUserDebugLine(
                 start_pos.tolist(),
                 end_pos.tolist(),
-                lineColorRGB=[0, 0.8, 0.2],  # 绿色线
+                lineColorRGB=[0, 0.8, 0.2],  # Green line
                 lineWidth=1
             )
             self.debug_lines.append(line_id)
     
     def plan(self, start_joint_config: List[float], goal_ee_pos: np.ndarray, goal_ee_orn: np.ndarray) -> Tuple[List[List[float]], float]:
-        """规划从起始关节配置到目标末端执行器位置的路径。
+        """Plan path from start joint configuration to goal end effector position.
         
         Args:
-            start_joint_config: 起始关节配置
-            goal_ee_pos: 目标末端执行器位置
-            goal_ee_orn: 目标末端执行器方向
+            start_joint_config: Starting joint configuration
+            goal_ee_pos: Goal end effector position
+            goal_ee_orn: Goal end effector orientation
             
         Returns:
-            (路径, 路径代价)
-            路径是关节位置列表，从起点到终点
+            (path, path_cost)
+            path is a list of joint positions from start to goal
         """
-        # 重置树
+        # Reset tree
         self.nodes_cart = []
         self.nodes_joint = []
         self.costs = []
         self.parents = []
         
-        # 获取起始位置的末端执行器姿态
+        # Get end effector pose at starting position
         start_ee_pos, start_ee_orn = self._get_current_ee_pose(start_joint_config)
         
-        # 尝试获取目标位置的IK解
+        # Try to get IK solution for goal position
         try:
             goal_joint_config = self.ik_solver.solve(goal_ee_pos, goal_ee_orn, start_joint_config, max_iters=50, tolerance=0.001)
         except:
-            print("无法为目标位置找到IK解")
+            print("Cannot find IK solution for goal position")
             return [], float('inf')
         
-        # 初始化树
+        # Initialize tree
         self.nodes_cart.append(start_ee_pos)
         self.nodes_joint.append(start_joint_config)
         self.costs.append(0.0)
-        self.parents.append(0)  # 根节点是自己的父节点
+        self.parents.append(0)  # Root node is its own parent
         
-        # 记录最接近目标的节点
+        # Track node closest to goal
         best_goal_idx = 0
         best_goal_distance = self._distance_cart(start_ee_pos, goal_ee_pos)
         
-        # RRT* 主循环
+        # RRT* main loop
         for i in range(self.max_iterations):
-            # 以一定概率直接采样目标点
+            # Sample goal point with certain probability
             if random.random() < self.goal_sample_rate:
                 sample_point = goal_ee_pos
             else:
                 sample_point = self._sample_random_cart_point()
             
-            # 找到离采样点最近的节点
+            # Find nearest node to sampled point
             distances = [self._distance_cart(sample_point, node) for node in self.nodes_cart]
             nearest_idx = np.argmin(distances)
             
-            # 向采样点引导
+            # Steer toward sampled point
             new_point = self._steer(self.nodes_cart[nearest_idx], sample_point)
             
-            # 使用最近节点的关节状态作为IK的初始猜测
+            # Use nearest node's joint state as initial guess for IK
             try:
                 new_joint_state = self.ik_solver.solve(
                     new_point, 
-                    start_ee_orn,  # 保持初始方向 
+                    start_ee_orn,  # Maintain initial orientation 
                     self.nodes_joint[nearest_idx], 
                     max_iters=20, 
                     tolerance=0.005
                 )
             except:
-                # IK求解失败，跳过此点
+                # IK solution failed, skip this point
                 continue
             
-            # 检查新点是否无碰撞
+            # Check if new point is collision-free
             if not self._is_collision_free_cart(
                 self.nodes_cart[nearest_idx], 
                 new_point, 
@@ -537,44 +537,44 @@ class RRTStarCartesianPlanner:
             ):
                 continue
             
-            # 找到附近的节点
+            # Find nearby nodes
             nearby_indices = self._find_nearby(new_point)
             
-            # 选择最佳父节点
+            # Choose best parent
             best_parent_idx, new_cost = self._choose_parent(new_point, nearby_indices, new_joint_state)
             
             if best_parent_idx == -1:
-                # 没有有效的父节点
+                # No valid parent
                 continue
             
-            # 添加新节点
+            # Add new node
             new_node_idx = len(self.nodes_cart)
             self.nodes_cart.append(new_point)
             self.nodes_joint.append(new_joint_state)
             self.costs.append(new_cost)
             self.parents.append(best_parent_idx)
             
-            # 重新连接
+            # Rewire
             self._rewire(new_node_idx, nearby_indices)
             
-            # 更新可视化
+            # Update visualization
             self._update_visualization(new_node_idx)
             
-            # 检查新节点是否更接近目标
+            # Check if new node is closer to goal
             distance_to_goal = self._distance_cart(new_point, goal_ee_pos)
             if distance_to_goal < best_goal_distance:
                 best_goal_distance = distance_to_goal
                 best_goal_idx = new_node_idx
                 
-                # 打印当前最佳距离
+                # Print current best distance
                 if i % 10 == 0:
-                    print(f"迭代 {i}: 当前离目标最近的距离 = {best_goal_distance:.6f}")
+                    print(f"Iteration {i}: Current closest distance to goal = {best_goal_distance:.6f}")
             
-            # 检查是否达到目标
+            # Check if goal is reached
             if distance_to_goal < self.goal_threshold:
-                print(f"到达目标! 迭代次数: {i}, 距离: {distance_to_goal:.6f}")
+                print(f"Goal reached! Iterations: {i}, Distance: {distance_to_goal:.6f}")
                 
-                # 直接连接到实际目标
+                # Connect directly to actual goal
                 goal_node_idx = len(self.nodes_cart)
                 self.nodes_cart.append(goal_ee_pos)
                 self.nodes_joint.append(goal_joint_config)
@@ -582,24 +582,24 @@ class RRTStarCartesianPlanner:
                 self.costs.append(goal_cost)
                 self.parents.append(new_node_idx)
                 
-                # 提取路径
+                # Extract path
                 path = self._extract_path(goal_node_idx)
                 return path, goal_cost
         
-        # 如果达到最大迭代次数但未找到路径
-        print(f"达到最大迭代次数 ({self.max_iterations})，返回到目标的最佳路径")
-        print(f"最佳距离: {best_goal_distance:.6f}")
+        # If max iterations reached but no path found
+        print(f"Max iterations reached ({self.max_iterations}), returning best path to goal")
+        print(f"Best distance: {best_goal_distance:.6f}")
         
-        # 如果我们至少有一个接近目标的节点
-        if best_goal_distance < 0.1:  # 10cm的阈值
-            # 尝试连接到实际目标
+        # If we have at least one node close to goal
+        if best_goal_distance < 0.1:  # 10cm threshold
+            # Try to connect to actual goal
             if self._is_collision_free_cart(
                 self.nodes_cart[best_goal_idx], 
                 goal_ee_pos, 
                 self.nodes_joint[best_goal_idx], 
                 goal_joint_config
             ):
-                print("连接到实际目标")
+                print("Connecting to actual goal")
                 goal_node_idx = len(self.nodes_cart)
                 self.nodes_cart.append(goal_ee_pos)
                 self.nodes_joint.append(goal_joint_config)
@@ -607,54 +607,54 @@ class RRTStarCartesianPlanner:
                 self.costs.append(goal_cost)
                 self.parents.append(best_goal_idx)
                 
-                # 提取路径
+                # Extract path
                 path = self._extract_path(goal_node_idx)
                 return path, goal_cost
         
-        # 提取到最近节点的路径
+        # Extract path to closest node
         path = self._extract_path(best_goal_idx)
         return path, self.costs[best_goal_idx]
     
     def _extract_path(self, goal_idx: int) -> List[List[float]]:
-        """从树中提取路径。
+        """Extract path from tree.
         
         Args:
-            goal_idx: 目标节点索引
+            goal_idx: Index of goal node
             
         Returns:
-            关节位置列表，从起点到终点
+            List of joint positions from start to goal
         """
         path = []
         current_idx = goal_idx
         
-        # 从目标到起点跟踪路径
+        # Trace path from goal to start
         while current_idx != 0:
             path.append(self.nodes_joint[current_idx])
             current_idx = self.parents[current_idx]
             
-        # 添加起点
+        # Add start point
         path.append(self.nodes_joint[0])
         
-        # 反转路径以从起点到终点
+        # Reverse path to get start to goal
         path.reverse()
         
         return path
     
     def clear_visualization(self) -> None:
-        """清除所有可视化元素。"""
+        """Clear all visualization elements."""
         for line_id in self.debug_lines:
             p.removeUserDebugItem(line_id)
         self.debug_lines = []
     
     def generate_smooth_trajectory(self, path: List[List[float]], smoothing_steps: int = 10) -> List[List[float]]:
-        """生成平滑的轨迹。
+        """Generate smooth trajectory.
         
         Args:
-            path: 原始路径（关节位置列表）
-            smoothing_steps: 在路径点之间插入的步数
+            path: Original path (list of joint positions)
+            smoothing_steps: Number of steps to insert between path points
             
         Returns:
-            平滑的轨迹
+            Smooth trajectory
         """
         if not path or len(path) < 2:
             return path
@@ -667,37 +667,37 @@ class RRTStarCartesianPlanner:
             
             for step in range(smoothing_steps):
                 t = step / smoothing_steps
-                # 线性插值
+                # Linear interpolation
                 config = [start + t * (end - start) for start, end in zip(start_config, end_config)]
                 smooth_path.append(config)
                 
-        # 添加最后一个配置
+        # Add final configuration
         smooth_path.append(path[-1])
         
         return smooth_path
 
 
-# 测试函数
+# Test function
 def test_rrt_star_cartesian():
-    """测试笛卡尔空间RRT*规划器"""
+    """Test Cartesian space RRT* planner"""
     import pybullet as p
     import pybullet_data
     import time
 
-    # 初始化PyBullet
+    # Initialize PyBullet
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0, 0, -9.8)
     
-    # 加载机器人和环境
+    # Load robot and environment
     plane_id = p.loadURDF("plane.urdf")
     robot_id = p.loadURDF("franka_panda/panda.urdf", [0, 0, 0], useFixedBase=True)
     
-    # 设置机器人初始状态
+    # Set robot initial state
     for i in range(p.getNumJoints(robot_id)):
         p.setJointMotorControl2(robot_id, i, p.POSITION_CONTROL, 0)
     
-    # 获取关节信息
+    # Get joint information
     joint_indices = []
     lower_limits = []
     upper_limits = []
@@ -709,14 +709,14 @@ def test_rrt_star_cartesian():
             lower_limits.append(joint_info[8])
             upper_limits.append(joint_info[9])
     
-    # 末端执行器索引
-    ee_link_index = 11  # 假设末端执行器链接索引为11，根据实际机器人模型调整
+    # End effector index
+    ee_link_index = 11  # Assuming end effector link index is 11, adjust based on actual robot model
     
-    # 创建简单的障碍物跟踪器（模拟）
+    # Create simple obstacle tracker (simulation)
     class SimpleObstacleTracker:
         def __init__(self):
             self.obstacles = []
-            # 添加一些障碍物
+            # Add some obstacles
             self.add_obstacle([0.5, 0.3, 0.2], 0.1)
             self.add_obstacle([0.5, -0.3, 0.2], 0.1)
             
@@ -734,7 +734,7 @@ def test_rrt_star_cartesian():
     
     obstacle_tracker = SimpleObstacleTracker()
     
-    # 创建规划器
+    # Create planner
     planner = RRTStarCartesianPlanner(
         robot_id=robot_id,
         joint_indices=joint_indices,
@@ -749,40 +749,40 @@ def test_rrt_star_cartesian():
         goal_threshold=0.03
     )
     
-    # 定义起始关节配置
+    # Define starting joint configuration
     start_config = [0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0]
     
-    # 定义目标位置和方向
+    # Define goal position and orientation
     goal_pos = np.array([0.6, 0.2, 0.5])
     goal_orn = p.getQuaternionFromEuler([0, -np.pi/2, 0])
     
-    # 可视化目标位置
+    # Visualize goal position
     p.addUserDebugPoints([goal_pos], [[1, 0, 0]], pointSize=10)
     
-    # 规划路径
-    print("开始规划路径...")
+    # Plan path
+    print("Starting path planning...")
     path, cost = planner.plan(start_config, goal_pos, goal_orn)
     
     if path:
-        print(f"找到路径! 代价: {cost:.6f}")
+        print(f"Path found! Cost: {cost:.6f}")
         
-        # 生成平滑轨迹
+        # Generate smooth trajectory
         smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=20)
         
-        # 执行轨迹
-        print("执行轨迹...")
+        # Execute trajectory
+        print("Executing trajectory...")
         for joint_pos in smooth_path:
-            # 设置关节位置
+            # Set joint positions
             for i, idx in enumerate(joint_indices):
                 p.setJointMotorControl2(robot_id, idx, p.POSITION_CONTROL, joint_pos[i])
             
-            # 更新仿真
+            # Update simulation
             p.stepSimulation()
             time.sleep(0.01)
     else:
-        print("未找到路径")
+        print("No path found")
     
-    # 保持窗口打开
+    # Keep window open
     while p.isConnected():
         p.stepSimulation()
         time.sleep(0.01)

@@ -4,85 +4,85 @@ import open3d as o3d
 
 class BoundingBox:
     """
-    用于计算和可视化点云边界框的类
+    Class for calculating and visualizing point cloud bounding boxes
     """
     def __init__(self, point_cloud):
         """
-        初始化边界框计算器
+        Initialize bounding box calculator
         
-        参数:
-        point_cloud: Open3D点云对象或numpy点数组(N,3)
+        Parameters:
+        point_cloud: Open3D point cloud object or numpy point array (N,3)
         """
-        # 如果输入是Open3D点云对象，提取点坐标
+        # If input is an Open3D point cloud object, extract point coordinates
         if isinstance(point_cloud, o3d.geometry.PointCloud):
             self.points = np.asarray(point_cloud.points)
         else:
             self.points = np.asarray(point_cloud)
         
-        # 初始化边界框属性
-        self.obb_corners = None    # 旋转边界框的顶点
-        self.aabb_min = None       # 轴对齐边界框最小点
-        self.aabb_max = None       # 轴对齐边界框最大点
-        self.obb_dims = None       # 旋转边界框的尺寸
-        self.rotation_matrix = None # 旋转矩阵
-        self.center = None         # 质心
-        self.height = None         # 物体高度
-        self.debug_lines = []      # 用于可视化的线条ID
+        # Initialize bounding box properties
+        self.obb_corners = None    # Oriented bounding box vertices
+        self.aabb_min = None       # Axis-aligned bounding box minimum point
+        self.aabb_max = None       # Axis-aligned bounding box maximum point
+        self.obb_dims = None       # Oriented bounding box dimensions
+        self.rotation_matrix = None # Rotation matrix
+        self.center = None         # Centroid
+        self.height = None         # Object height
+        self.debug_lines = []      # Line IDs for visualization
     
     def compute_obb(self):
         """
-        计算点云的旋转边界框(OBB)
-        基于XY平面的PCA分析实现
+        Calculate the oriented bounding box (OBB) of the point cloud
+        Implemented based on PCA analysis in the XY plane
         
-        返回:
-        self: 返回自身以支持方法链式调用
+        Returns:
+        self: Returns self to support method chaining
         """
-        # 检查点云是否为空
+        # Check if point cloud is empty
         if len(self.points) == 0:
-            raise ValueError("点云为空，无法计算边界框")
+            raise ValueError("Point cloud is empty, cannot calculate bounding box")
         
-        # 计算点云质心
+        # Calculate point cloud centroid
         self.center = np.mean(self.points, axis=0)
         
-        # 1. 将点云投影到XY平面
+        # 1. Project point cloud onto XY plane
         points_xy = self.points.copy()
-        points_xy[:, 2] = 0  # 将Z坐标设为0，投影到XY平面
+        points_xy[:, 2] = 0  # Set Z coordinate to 0, projecting onto XY plane
         
-        # 2. 对XY平面上的点云进行PCA，找到主轴方向
+        # 2. Perform PCA on the projected point cloud to find principal axes
         xy_mean = np.mean(points_xy, axis=0)
         xy_centered = points_xy - xy_mean
-        cov_xy = np.cov(xy_centered.T)[:2, :2]  # 只取XY平面的协方差
+        cov_xy = np.cov(xy_centered.T)[:2, :2]  # Only take XY plane covariance
         eigenvalues, eigenvectors = np.linalg.eigh(cov_xy)
         
-        # 排序特征值和特征向量（降序）
+        # Sort eigenvalues and eigenvectors (descending)
         idx = eigenvalues.argsort()[::-1]
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
         
-        # 3. 获取主轴方向，这些是XY平面内的旋转方向
+        # 3. Get principal axis directions, these are the rotation directions in the XY plane
         main_axis_x = np.array([eigenvectors[0, 0], eigenvectors[1, 0], 0])
         main_axis_y = np.array([eigenvectors[0, 1], eigenvectors[1, 1], 0])
-        main_axis_z = np.array([0, 0, 1])  # Z轴保持垂直
+        main_axis_z = np.array([0, 0, 1])  # Z axis remains vertical
         
-        # 归一化主轴
+        # Normalize main axes
         main_axis_x = main_axis_x / np.linalg.norm(main_axis_x)
         main_axis_y = main_axis_y / np.linalg.norm(main_axis_y)
         
-        # 4. 构建旋转矩阵
+        # 4. Build rotation matrix
         self.rotation_matrix = np.column_stack((main_axis_x, main_axis_y, main_axis_z))
         
-        # 5. 将点云旋转到新坐标系
+        # 5. Rotate point cloud to new coordinate system
         points_rotated = np.dot(self.points - xy_mean, self.rotation_matrix)
         
-        # 6. 在新坐标系中计算边界框
+        # 6. Calculate bounding box in new coordinate system
         min_point_rotated = np.min(points_rotated, axis=0)
         max_point_rotated = np.max(points_rotated, axis=0)
         
-        # 计算旋转后的边界框尺寸
+        # Calculate dimensions of rotated bounding box
         self.obb_dims = max_point_rotated - min_point_rotated
         self.height = self.obb_dims[2]
         
-        # 7. 计算边界框的8个顶点（在旋转坐标系中）
+        # 7. Calculate the 8 vertices of the bounding box (in rotated coordinate system)
         bbox_corners_rotated = np.array([
             [min_point_rotated[0], min_point_rotated[1], min_point_rotated[2]],
             [max_point_rotated[0], min_point_rotated[1], min_point_rotated[2]],
@@ -94,10 +94,10 @@ class BoundingBox:
             [min_point_rotated[0], max_point_rotated[1], max_point_rotated[2]],
         ])
         
-        # 8. 将顶点变换回原始坐标系
+        # 8. Transform vertices back to original coordinate system
         self.obb_corners = np.dot(bbox_corners_rotated, self.rotation_matrix.T) + xy_mean
         
-        # 9. 计算轴对齐边界框(AABB)用于抓取采样（基于OBB的顶点）
+        # 9. Calculate axis-aligned bounding box (AABB) for grasp sampling (based on OBB vertices)
         self.aabb_min = np.min(self.obb_corners, axis=0)
         self.aabb_max = np.max(self.obb_corners, axis=0)
         
@@ -105,42 +105,42 @@ class BoundingBox:
     
     def visualize_in_pybullet(self, color=(0, 1, 1), line_width=1, lifetime=0):
         """
-        在PyBullet中可视化边界框
+        Visualize bounding box in PyBullet
         
-        参数:
-        color: 线条颜色(R,G,B)，默认为青色
-        line_width: 线条宽度，默认为1
-        lifetime: 线条的生命周期（秒），0表示永久存在
+        Parameters:
+        color: Line color (R,G,B), default is cyan
+        line_width: Line width, default is 1
+        lifetime: Lifetime of lines (seconds), 0 means permanent
         
-        返回:
-        debug_lines: 用于可视化的线条ID列表
+        Returns:
+        debug_lines: List of line IDs for visualization
         """
         if self.obb_corners is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
-        # 定义边界框的12条边
+        # Define the 12 edges of the bounding box
         bbox_lines = [
-            # 底部矩形
+            # Bottom rectangle
             [self.obb_corners[0], self.obb_corners[1]],
             [self.obb_corners[1], self.obb_corners[2]],
             [self.obb_corners[2], self.obb_corners[3]],
             [self.obb_corners[3], self.obb_corners[0]],
-            # 顶部矩形
+            # Top rectangle
             [self.obb_corners[4], self.obb_corners[5]],
             [self.obb_corners[5], self.obb_corners[6]],
             [self.obb_corners[6], self.obb_corners[7]],
             [self.obb_corners[7], self.obb_corners[4]],
-            # 连接线
+            # Connecting lines
             [self.obb_corners[0], self.obb_corners[4]],
             [self.obb_corners[1], self.obb_corners[5]],
             [self.obb_corners[2], self.obb_corners[6]],
             [self.obb_corners[3], self.obb_corners[7]]
         ]
         
-        # 清除之前的可视化线条
+        # Clear previous visualization lines
         self.clear_visualization()
         
-        # 添加新的可视化线条
+        # Add new visualization lines
         for line in bbox_lines:
             line_id = p.addUserDebugLine(
                 line[0], 
@@ -155,19 +155,19 @@ class BoundingBox:
     
     def add_centroid_visualization(self, radius=0.01, color=(1, 0, 0, 1)):
         """
-        在PyBullet中可视化边界框的质心
+        Visualize the centroid of the bounding box in PyBullet
         
-        参数:
-        radius: 球体半径，默认为0.01米
-        color: 球体颜色(R,G,B,A)，默认为红色
+        Parameters:
+        radius: Sphere radius, default is 0.01 meters
+        color: Sphere color (R,G,B,A), default is red
         
-        返回:
-        centroid_id: 用于可视化的物体ID
+        Returns:
+        centroid_id: Object ID for visualization
         """
         if self.center is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
-        # 创建一个球体表示质心
+        # Create a sphere to represent the centroid
         visual_id = p.createVisualShape(
             shapeType=p.GEOM_SPHERE,
             radius=radius,
@@ -175,43 +175,43 @@ class BoundingBox:
         )
         
         centroid_id = p.createMultiBody(
-            baseMass=0,  # 质量为0表示静态物体
+            baseMass=0,  # Mass of 0 indicates a static object
             baseVisualShapeIndex=visual_id,
             basePosition=self.center.tolist()
         )
         
-        # 添加文本标签
+        # Add text label
         p.addUserDebugText(
             f"Centroid ({self.center[0]:.3f}, {self.center[1]:.3f}, {self.center[2]:.3f})",
-            self.center + np.array([0, 0, 0.05]),  # 在质心上方5cm处显示文本
-            [1, 1, 1],  # 白色文本
-            1.0  # 文本大小
+            self.center + np.array([0, 0, 0.05]),  # Display text 5cm above centroid
+            [1, 1, 1],  # White text
+            1.0  # Text size
         )
         
         return centroid_id
     
     def add_axes_visualization(self, length=0.1):
         """
-        在PyBullet中可视化边界框的主轴
+        Visualize the principal axes of the bounding box in PyBullet
         
-        参数:
-        length: 坐标轴长度，默认为0.1米
+        Parameters:
+        length: Axis length, default is 0.1 meters
         
-        返回:
-        axis_lines: 用于可视化的线条ID列表
+        Returns:
+        axis_lines: List of line IDs for visualization
         """
         if self.rotation_matrix is None or self.center is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
-        # 获取主轴方向
+        # Get principal axis directions
         axis_x = self.rotation_matrix[:, 0] * length
         axis_y = self.rotation_matrix[:, 1] * length
         axis_z = self.rotation_matrix[:, 2] * length
         
-        # 添加主轴可视化
+        # Add principal axes visualization
         axis_lines = []
         
-        # X轴 - 红色
+        # X axis - red
         line_id = p.addUserDebugLine(
             self.center,
             self.center + axis_x,
@@ -221,7 +221,7 @@ class BoundingBox:
         )
         axis_lines.append(line_id)
         
-        # Y轴 - 绿色
+        # Y axis - green
         line_id = p.addUserDebugLine(
             self.center,
             self.center + axis_y,
@@ -231,7 +231,7 @@ class BoundingBox:
         )
         axis_lines.append(line_id)
         
-        # Z轴 - 蓝色
+        # Z axis - blue
         line_id = p.addUserDebugLine(
             self.center,
             self.center + axis_z,
@@ -245,7 +245,7 @@ class BoundingBox:
     
     def clear_visualization(self):
         """
-        清除PyBullet中的可视化线条
+        Clear visualization lines in PyBullet
         """
         for line_id in self.debug_lines:
             p.removeUserDebugItem(line_id)
@@ -254,133 +254,133 @@ class BoundingBox:
     
     def get_dimensions(self):
         """
-        获取边界框的尺寸
+        Get the dimensions of the bounding box
         
-        返回:
-        dimensions: 边界框的尺寸[长, 宽, 高]
+        Returns:
+        dimensions: Bounding box dimensions [length, width, height]
         """
         if self.obb_dims is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.obb_dims
     
     def get_height(self):
         """
-        获取物体高度
+        Get object height
         
-        返回:
-        height: 物体高度
+        Returns:
+        height: Object height
         """
         if self.height is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.height
     
     def get_center(self):
         """
-        获取边界框的中心点
+        Get the center point of the bounding box
         
-        返回:
-        center: 边界框的中心点[x, y, z]
+        Returns:
+        center: Center point of the bounding box [x, y, z]
         """
         if self.center is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.center
     
     def get_rotation_matrix(self):
         """
-        获取边界框的旋转矩阵
+        Get the rotation matrix of the bounding box
         
-        返回:
-        rotation_matrix: 3x3旋转矩阵
+        Returns:
+        rotation_matrix: 3x3 rotation matrix
         """
         if self.rotation_matrix is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.rotation_matrix
     
     def get_corners(self):
         """
-        获取边界框的8个顶点
+        Get the 8 vertices of the bounding box
         
-        返回:
-        corners: 8个顶点的坐标，形状为(8,3)
+        Returns:
+        corners: Coordinates of 8 vertices, shape (8,3)
         """
         if self.obb_corners is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.obb_corners
     
     def get_aabb(self):
         """
-        获取轴对齐边界框的最小点和最大点
+        Get the minimum and maximum points of the axis-aligned bounding box
         
-        返回:
-        (min_point, max_point): 边界框的最小点和最大点
+        Returns:
+        (min_point, max_point): Minimum and maximum points of the bounding box
         """
         if self.aabb_min is None or self.aabb_max is None:
-            raise ValueError("请先调用compute_obb()计算边界框")
+            raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
         return self.aabb_min, self.aabb_max
     
     @staticmethod
     def compute_point_cloud_bbox(sim, collector, point_clouds, visualize_cloud=True):
         """
-        计算和可视化点云边界框
+        Calculate and visualize point cloud bounding box
         
-        参数:
-        sim: 仿真环境对象
-        collector: 点云收集器对象
-        point_clouds: 收集的点云数据
-        visualize_cloud: 是否可视化点云
+        Parameters:
+        sim: Simulation environment object
+        collector: Point cloud collector object
+        point_clouds: Collected point cloud data
+        visualize_cloud: Whether to visualize the point cloud
         
-        返回:
-        bbox: 计算的边界框对象
+        Returns:
+        bbox: Calculated bounding box object
         """
-        print("\n步骤2: 计算和可视化边界框...")
+        print("\nStep 2: Calculate and visualize bounding box...")
         
-        # 可视化收集的点云
+        # Visualize collected point clouds
         if visualize_cloud and point_clouds:
-            # 显示单独的点云
-            print("\n可视化单独点云...")
+            # Display individual point clouds
+            print("\nVisualizing individual point clouds...")
             collector.visualize_point_clouds(point_clouds, show_merged=False)
         
-        # 合并点云
-        print("\n合并点云...")
+        # Merge point clouds
+        print("\nMerging point clouds...")
         merged_cloud = collector.merge_point_clouds(point_clouds)
         
-        # 可视化合并点云
+        # Visualize merged point cloud
         if visualize_cloud and merged_cloud is not None:
-            print("\n可视化合并点云...")
-            # 创建一个只包含合并点云的列表
+            print("\nVisualizing merged point cloud...")
+            # Create a list containing only the merged point cloud
             merged_cloud_data = [{
                 'point_cloud': merged_cloud,
-                'camera_position': np.array([0, 0, 0]),  # 占位符
-                'camera_rotation': np.eye(3)  # 占位符
+                'camera_position': np.array([0, 0, 0]),  # Placeholder
+                'camera_rotation': np.eye(3)  # Placeholder
             }]
             collector.visualize_point_clouds(merged_cloud_data, show_merged=False)
         
-        # 计算边界框
-        print("\n计算边界框...")
+        # Calculate bounding box
+        print("\nCalculating bounding box...")
         bbox = BoundingBox(merged_cloud)
         bbox.compute_obb()
         
-        # 可视化边界框
-        print("\n可视化边界框...")
+        # Visualize bounding box
+        print("\nVisualizing bounding box...")
         bbox.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
         
-        # 可视化中心点
+        # Visualize centroid
         centroid_id = bbox.add_centroid_visualization(radius=0.02)
         
-        # 可视化主轴
+        # Visualize principal axes
         axis_lines = bbox.add_axes_visualization(length=0.15)
         
-        # 打印边界框信息
-        print(f"\n边界框信息:")
-        print(f"物体高度: {bbox.get_height():.4f}米")
-        print(f"边界框尺寸: {bbox.get_dimensions()}")
+        # Print bounding box information
+        print(f"\nBounding box information:")
+        print(f"Object height: {bbox.get_height():.4f} meters")
+        print(f"Bounding box dimensions: {bbox.get_dimensions()}")
         center = bbox.get_center()
-        print(f"质心坐标: ({center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f})")
+        print(f"Centroid coordinates: ({center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f})")
         
         return bbox

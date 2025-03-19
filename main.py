@@ -58,36 +58,36 @@ def run_exp(config: Dict[str, Any]):
 
 
 if __name__ == "__main__":
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description='机器人点云采集和边界框计算')
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Robot point cloud collection and bounding box calculation')
     # All objects: 
     # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
     parser.add_argument('--object', type=str, default="YcbGelatinBox",
-                        help='目标物体名称')
+                        help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
-                        help='禁用点云可视化')
+                        help='Disable point cloud visualization')
     parser.add_argument('--no-grasp', action='store_true',
-                        help='禁用抓取执行')
+                        help='Disable grasp execution')
     parser.add_argument('--no-planning', action='store_true',
-                        help='禁用路径规划')
+                        help='Disable path planning')
     parser.add_argument('--planning-type', type=str, choices=['joint', 'cartesian'], default='joint',
-                        help='选择路径规划类型: joint(关节空间) 或 cartesian(笛卡尔空间)')
+                        help='Select path planning type: joint (joint space) or cartesian (Cartesian space)')
     
     args = parser.parse_args()
     
-    # 加载配置文件
+    # Load configuration file
     config_path = "configs/test_config.yaml"
     with open(config_path, "r") as stream:
         try:
             config = yaml.safe_load(stream)
-            print(f"加载配置文件: {config_path}")
+            print(f"Loading configuration file: {config_path}")
         except yaml.YAMLError as exc:
-            print(f"配置文件加载错误: {exc}")
+            print(f"Configuration file loading error: {exc}")
     
-    # 变量初始化
+    # Variable initialization
     sim = None
     collector = None
     point_clouds = None
@@ -95,30 +95,30 @@ if __name__ == "__main__":
     grasp_success = False
     grasp_executor = None
     
-    # 步骤1: 收集点云
-    print("步骤1: 开始点云采集...")
+    # Step 1: Collect point cloud
+    print("Step 1: Starting point cloud collection...")
     sim = Simulation(config)
     collector = PointCloudCollector(config, sim)
     point_clouds = collector.collect_point_clouds(args.object)
-    print(f"成功收集了 {len(point_clouds)} 个点云。")
+    print(f"Successfully collected {len(point_clouds)} point clouds.")
     
-    # 检查并打印高点点云的z轴最大值点
+    # Check and print the maximum z-axis point from the high viewpoint cloud
     for data in point_clouds:
         if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
-            print(f"\n高点观察位置点云的z轴最大值点: {data['max_z_point']}")
+            print(f"\nMaximum z-axis point from the high viewpoint cloud: {data['max_z_point']}")
     
-    # 步骤2: 计算和可视化边界框
+    # Step 2: Compute and visualize bounding box
     if point_clouds:
         bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
         
-        # 步骤3: 执行抓取（除非--no-grasp标志被设置）
+        # Step 3: Execute grasp (unless --no-grasp flag is set)
         if not args.no_grasp and bbox is not None:
             grasp_executor = GraspExecution(sim)
             grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
             
-            # 步骤4: 执行路径规划（如果抓取成功且未禁用规划）
+            # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
             if grasp_success and not args.no_planning and grasp_executor is not None:
-                # 创建路径规划执行器
+                # Create path planning executor
                 planning_executor = PlanningExecutor(sim, config)
                 planning_success = planning_executor.execute_planning(
                     grasp_executor, 
@@ -126,12 +126,12 @@ if __name__ == "__main__":
                     visualize=True
                 )
                 if planning_success:
-                    print(f"\n{'笛卡尔空间' if args.planning_type == 'cartesian' else '关节空间'}路径规划执行成功！")
+                    print(f"\n{'Cartesian space' if args.planning_type == 'cartesian' else 'Joint space'} path planning executed successfully!")
                 else:
-                    print(f"\n{'笛卡尔空间' if args.planning_type == 'cartesian' else '关节空间'}路径规划执行失败。")
+                    print(f"\n{'Cartesian space' if args.planning_type == 'cartesian' else 'Joint space'} path planning execution failed.")
     
-    input("\n按下Enter键关闭模拟...")
+    input("\nPress Enter to close the simulation...")
     
-    # 关闭模拟
+    # Close simulation
     if sim is not None:
         sim.close()
