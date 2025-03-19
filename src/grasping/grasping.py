@@ -279,36 +279,36 @@ class GraspGeneration:
         num_colisions: int = 10,
         tolerance: float = 0.00001) -> bool:
         """
-        检查抓取器姿态与目标物体之间是否存在碰撞，使用点云采样方法。
+        Check if there is a collision between the gripper pose and the target object using point cloud sampling method.
 
-        参数:
-            grasp_meshes: 表示抓取器组件的网格几何列表
-            object_mesh: 目标物体的三角网格（可选）
-            object_pcd: 目标物体的点云（可选）
-            num_colisions: 判定为碰撞的点数阈值
-            tolerance: 判定碰撞的距离阈值（米）
+        Parameters:
+            grasp_meshes: List of mesh geometries representing gripper components
+            object_mesh: Triangle mesh of the target object (optional)
+            object_pcd: Point cloud of the target object (optional)
+            num_colisions: Threshold number of points to determine collision
+            tolerance: Distance threshold for determining collision (meters)
 
-        返回:
-            bool: 如果抓取器与物体之间检测到碰撞则为True，否则为False
+        Returns:
+            bool: True if collision is detected between the gripper and the object, False otherwise
         """
-        # 合并抓取器网格
+        # Combine gripper meshes
         combined_gripper = o3d.geometry.TriangleMesh()
         for mesh in grasp_meshes:
             combined_gripper += mesh
 
-        # 从网格采样点
-        num_points = 5000  # 对两个网格进行子采样的点数
+        # Sample points from mesh
+        num_points = 5000  # Number of points for subsampling both meshes
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
         
-        # 确定使用哪个物体表示
+        # Determine which object representation to use
         if object_mesh is not None:
             object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
         elif object_pcd is not None:
             object_pcl = object_pcd
         else:
-            raise ValueError("必须提供object_mesh或object_pcd中的至少一个参数")
+            raise ValueError("Must provide at least one parameter from object_mesh or object_pcd")
 
-        # 为物体点构建KD树
+        # Build KD tree for object points
         is_collision = False
         object_kd_tree = o3d.geometry.KDTreeFlann(object_pcl)
         collision_count = 0
@@ -317,7 +317,7 @@ class GraspGeneration:
             if distance[0] < tolerance:
                 collision_count += 1
                 if collision_count >= num_colisions:
-                    return True  # 检测到碰撞
+                    return True  # Collision detected
 
         return is_collision
     
@@ -341,7 +341,7 @@ class GraspGeneration:
         object_pcd: o3d.geometry.PointCloud,
         num_rays: int,
         rotation_matrix: np.ndarray, # rotation-mat
-        visualize_rays: bool = False  # 是否在PyBullet中可视化射线
+        visualize_rays: bool = False  # Whether to visualize rays in PyBullet
     ) -> Tuple[bool, float, float]:
         """
         Checks if any line between the gripper fingers intersects with the object mesh.
@@ -368,15 +368,15 @@ class GraspGeneration:
         # Check for intersections between corresponding points
         object_tree = o3d.geometry.KDTreeFlann(object_pcd)
 
-        # 计算物体的高度和边界框
+        # Calculate the height and bounding box of the object
         points = np.asarray(object_pcd.points)
         min_point = np.min(points, axis=0)
         max_point = np.max(points, axis=0)
         object_height = max_point[2] - min_point[2]
         object_center = (min_point + max_point) / 2
         
-        print(f"物体高度: {object_height:.4f}m")
-        print(f"物体中心点: {object_center}")
+        print(f"Object height: {object_height:.4f}m")
+        print(f"Object center point: {object_center}")
 
         obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=object_pcd, 
                                                                                           alpha=0.016)
@@ -397,164 +397,164 @@ class GraspGeneration:
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
         
-        # 用于存储射线的起点和终点，用于可视化
+        # Store ray start and end points for visualization
         ray_start_points = []
         ray_end_points = []
         
-        # ===== 计算爪子宽度方向 =====
-        print("计算爪子宽度方向...")
-        # 计算爪子宽度方向的向量（与ray_direction和finger_vec都垂直）
-        # 首先计算finger_vec在世界坐标系中的方向
+        # ===== Calculate gripper width direction =====
+        print("Calculating gripper width direction...")
+        # Calculate vector in gripper width direction (perpendicular to both ray_direction and finger_vec)
+        # First calculate finger_vec direction in world coordinates
         world_finger_vec = rotation_matrix.dot(finger_vec)
-        # 计算宽度方向向量（叉乘得到垂直于两个向量的第三个向量）
+        # Calculate width direction vector (cross product gives vector perpendicular to both vectors)
         width_direction = np.cross(ray_direction, world_finger_vec)
-        # 归一化
+        # Normalize
         width_direction = width_direction / np.linalg.norm(width_direction)
         
-        # 定义宽度方向的参数
-        width_planes = 1  # 宽度方向每侧的平面数量
-        width_offset = 0.015  # 平面间的偏移量（米）
+        # Define width direction parameters
+        width_planes = 1  # Number of planes on each side in width direction
+        width_offset = 0.015  # Offset between planes (meters)
         
-        # ===== 生成多个平行的射线平面 =====
-        print("生成多个平行的射线平面...")
-        # 中心平面（原始平面）
+        # ===== Generate multiple parallel ray planes =====
+        print("Generating multiple parallel ray planes...")
+        # Central plane (original plane)
         rays = []
         contained = False
         rays_hit = 0
         
-        # 宽度方向两侧的平行平面
+        # Parallel planes on both sides in width direction
         for plane in range(1, width_planes + 1):
-            # 计算当前平面的偏移量
+            # Calculate current plane offset
             current_offset = width_offset * plane
             
-            # 右侧平面
+            # Right side plane
             for i in range(num_rays):
-                # 计算长度方向上的采样点，并在宽度方向上偏移
+                # Calculate sampling point along length direction, and offset in width direction
                 right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) + width_direction * current_offset
-                # 添加从右侧偏移点到左侧偏移点的射线
+                # Add ray from right offset point to left offset point
                 rays.append([np.concatenate([right_point, ray_direction])])
                 
-                # 存储射线起点和终点用于可视化 - 使用实际手指宽度
+                # Store ray start and end points for visualization - using actual finger width
                 ray_start_points.append(right_point)
                 ray_end_points.append(right_point + ray_direction * hand_width)
             
-            # 左侧平面
+            # Left side plane
             for i in range(num_rays):
-                # 计算长度方向上的采样点，并在宽度方向上偏移
+                # Calculate sampling point along length direction, and offset in width direction
                 right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) - width_direction * current_offset
-                # 添加从右侧偏移点到左侧偏移点的射线
+                # Add ray from right offset point to left offset point
                 rays.append([np.concatenate([right_point, ray_direction])])
                 
-                # 存储射线起点和终点用于可视化 - 使用实际手指宽度
+                # Store ray start and end points for visualization - using actual finger width
                 ray_start_points.append(right_point)
                 ray_end_points.append(right_point + ray_direction * hand_width)
         
-        print(f"总共生成了 {len(rays)} 条射线")
+        print(f"Total of {len(rays)} rays generated")
         
-        # 在PyBullet中可视化射线
+        # Visualize rays in PyBullet
         debug_lines = []
         if visualize_rays:
-            print("在PyBullet中可视化射线...")
+            print("Visualizing rays in PyBullet...")
             for start, end in zip(ray_start_points, ray_end_points):
                 line_id = p.addUserDebugLine(
                     start.tolist(), 
                     end.tolist(), 
-                    lineColorRGB=[1, 0, 0],  # 红色
+                    lineColorRGB=[1, 0, 0],  # Red
                     lineWidth=1,
-                    lifeTime=5  # 5秒后自动消失
+                    lifeTime=5  # Disappear after 5 seconds
                 )
                 debug_lines.append(line_id)
         
-        # 执行射线投射
+        # Execute ray casting
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
         
-        # 处理射线投射结果
+        # Process ray casting results
         rays_hit = 0
         max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
         rays_from_left = []
         
-        # 跟踪左侧和右侧射线平面的命中情况
+        # Track hits for left and right side ray planes
         left_side_hit = False
         right_side_hit = False
         
-        # 计算每个平面的射线数量
+        # Calculate number of rays per plane
         rays_per_plane = num_rays
         
-        # 处理所有射线的结果
-        print("处理射线投射结果...")
+        # Process results for all rays
+        print("Processing ray casting results...")
         for idx, hit_point in enumerate(ans['t_hit']):
-            # 使用实际手指宽度判断射线是否击中物体
+            # Use actual finger width to determine if ray hit the object
             if hit_point[0] < hand_width:
                 rays_hit += 1
                 
-                # 确定射线属于左侧还是右侧平面
+                # Determine if ray belongs to left or right side plane
                 total_rays_count = len(rays)
                 half_rays_count = total_rays_count // 2
                 
                 if idx < half_rays_count:
-                    # 右侧平面的射线
+                    # Ray from right side plane
                     right_side_hit = True
                 else:
-                    # 左侧平面的射线
+                    # Ray from left side plane
                     left_side_hit = True
                 
-                # 只为中心平面（原始平面）的射线计算深度
+                # Only calculate depth for rays in the center plane (original plane)
                 if idx < num_rays:
                     left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
                     rays_from_left.append([np.concatenate([left_new_center, -ray_direction])])
         
-        # 只有当左侧和右侧平面都至少有一条射线命中时，才算作contained
+        # Only consider contained when both left and right side planes have at least one ray hit
         contained = left_side_hit and right_side_hit
         
         containment_ratio = 0.0
         if contained:
-            # 处理从左侧发出的射线（仅针对中心平面）
+            # Process rays from left side (only for center plane)
             if rays_from_left:
                 rays_t = o3d.core.Tensor(rays_from_left, dtype=o3d.core.Dtype.Float32)
                 ans_left = scene.cast_rays(rays_t)
                 
                 for idx, hitpoint in enumerate(ans['t_hit']):
-                    if idx < num_rays:  # 只处理中心平面的射线
+                    if idx < num_rays:  # Only process rays in center plane
                         left_idx = 0
-                        # 使用实际手指宽度计算截断深度
+                        # Calculate interception depth using actual finger width
                         if hitpoint[0] < hand_width: 
                             interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
                             max_interception_depth = max(max_interception_depth, interception_depth)
                             left_idx += 1
 
         print(f"the max interception depth is {max_interception_depth}")
-        # 计算总的射线命中率
+        # Calculate overall ray hit ratio
         total_rays = len(rays)
         containment_ratio = rays_hit / total_rays
-        print(f"射线命中率: {containment_ratio:.4f} ({rays_hit}/{total_rays})")
+        print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{total_rays})")
         
         intersections.append(contained)
         # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
 
-        # 计算抓取中心到物体中心的距离
+        # Calculate distance from grasp center to object center
         grasp_center = (left_center + right_center) / 2
         
-        # 计算3D空间中的总距离
+        # Calculate total distance in 3D space
         distance_to_center = np.linalg.norm(grasp_center - object_center)
         
-        # 计算仅在x-y平面上的距离（水平距离）
+        # Calculate distance only in x-y plane (horizontal distance)
         horizontal_distance = np.linalg.norm(grasp_center[:2] - object_center[:2])
         
-        # 计算距离分数（距离越近分数越高）
+        # Calculate distance score (closer distance gives higher score)
         center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
         
-        # 计算水平距离分数（水平距离越近分数越高）
+        # Calculate horizontal distance score (closer horizontal distance gives higher score)
         horizontal_score = np.exp(-horizontal_distance**2 / (2 * 0.03**2))
         
-        # 将两个距离分数纳入最终质量评分，给水平距离更高的权重
+        # Incorporate both distance scores into final quality score, giving higher weight to horizontal distance
         final_quality = containment_ratio * (1 + center_score + 1.5 * horizontal_score)
         
-        print(f"抓取中心: {grasp_center}")
-        print(f"水平距离: {horizontal_distance:.4f}m, 水平分数: {horizontal_score:.4f}")
-        print(f"总距离: {distance_to_center:.4f}m, 总距离分数: {center_score:.4f}")
-        print(f"最终质量评分: {final_quality:.4f}")
+        print(f"Grasp center: {grasp_center}")
+        print(f"Horizontal distance: {horizontal_distance:.4f}m, Horizontal score: {horizontal_score:.4f}")
+        print(f"Total distance: {distance_to_center:.4f}m, Total distance score: {center_score:.4f}")
+        print(f"Final quality score: {final_quality:.4f}")
         
         return any(intersections), final_quality, max_interception_depth.item()
 
@@ -565,20 +565,20 @@ class GraspGeneration:
                              pose2_orn, 
                              axis_length=0.1):
         """
-        在PyBullet中可视化抓取位姿坐标轴
+        Visualize grasp pose coordinate frames in PyBullet
         
-        参数:
-            pose1_pos: 预抓取位置
-            pose1_orn: 预抓取方向（四元数）
-            pose2_pos: 最终抓取位置
-            pose2_orn: 最终抓取方向（四元数）
-            axis_length: 坐标轴长度
+        Parameters:
+            pose1_pos: Pre-grasp position
+            pose1_orn: Pre-grasp orientation (quaternion)
+            pose2_pos: Final grasp position
+            pose2_orn: Final grasp orientation (quaternion)
+            axis_length: Coordinate axis length
         """
-        # 从四元数获取旋转矩阵
+        # Get rotation matrix from quaternion
         pose1_rot = np.array(p.getMatrixFromQuaternion(pose1_orn)).reshape(3, 3)
         pose2_rot = np.array(p.getMatrixFromQuaternion(pose2_orn)).reshape(3, 3)
         
-        # 提取各个轴的方向向量
+        # Extract direction vectors for each axis
         pose1_x_axis = pose1_rot[:, 0] * axis_length
         pose1_y_axis = pose1_rot[:, 1] * axis_length
         pose1_z_axis = pose1_rot[:, 2] * axis_length
@@ -587,29 +587,29 @@ class GraspGeneration:
         pose2_y_axis = pose2_rot[:, 1] * axis_length
         pose2_z_axis = pose2_rot[:, 2] * axis_length
         
-        # 可视化Pose 1的坐标轴
-        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_x_axis, [1, 0, 0], 3, 0)  # X轴 - 红色
-        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_y_axis, [0, 1, 0], 3, 0)  # Y轴 - 绿色
-        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_z_axis, [0, 0, 1], 3, 0)  # Z轴 - 蓝色
+        # Visualize Pose 1 coordinate axes
+        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_x_axis, [1, 0, 0], 3, 0)  # X-axis - Red
+        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_y_axis, [0, 1, 0], 3, 0)  # Y-axis - Green
+        p.addUserDebugLine(pose1_pos, pose1_pos + pose1_z_axis, [0, 0, 1], 3, 0)  # Z-axis - Blue
         
-        # 可视化Pose 2的坐标轴
-        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_x_axis, [1, 0, 0], 3, 0)  # X轴 - 红色
-        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_y_axis, [0, 1, 0], 3, 0)  # Y轴 - 绿色
-        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_z_axis, [0, 0, 1], 3, 0)  # Z轴 - 蓝色
+        # Visualize Pose 2 coordinate axes
+        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_x_axis, [1, 0, 0], 3, 0)  # X-axis - Red
+        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_y_axis, [0, 1, 0], 3, 0)  # Y-axis - Green
+        p.addUserDebugLine(pose2_pos, pose2_pos + pose2_z_axis, [0, 0, 1], 3, 0)  # Z-axis - Blue
         
-        # 添加文本标签
+        # Add text labels
         p.addUserDebugText("Pose 1", pose1_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
         p.addUserDebugText("Pose 2", pose2_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
 
 class GraspExecution:
-    """机器人抓取执行类，负责规划和执行完整的抓取动作"""
+    """Robot grasping execution class, responsible for planning and executing complete grasping actions"""
     
     def __init__(self, sim):
         """
-        初始化抓取执行器
+        Initialize grasping executor
         
-        参数:
-            sim: 模拟环境对象
+        Parameters:
+            sim: Simulation environment object
         """
         self.sim = sim
         from src.ik_solver import DifferentialIKSolver
@@ -619,45 +619,45 @@ class GraspExecution:
     
     def compute_grasp_poses(self, best_grasp):
         """
-        根据最佳抓取计算预抓取位姿和最终抓取位姿
+        Calculate pre-grasp and final grasp poses based on the best grasp
         
-        参数:
-            best_grasp: 最佳抓取姿态(R, grasp_center)
+        Parameters:
+            best_grasp: Best grasp pose (R, grasp_center)
             
-        返回:
+        Returns:
             tuple: (pose1_pos, pose1_orn, pose2_pos, pose2_orn)
         """
         R, grasp_center = best_grasp
         
-        # 构建爪子自身坐标系中的偏移向量
+        # Build offset vector in gripper coordinate system
         local_offset = np.array([0, 0.06, 0])
         
-        # 使用旋转矩阵将偏移向量从爪子坐标系转换到世界坐标系
+        # Transform offset vector from gripper coordinate system to world coordinate system
         world_offset = R @ local_offset
         
-        # 计算补偿后的末端执行器目标位置
+        # Calculate compensated end-effector target position
         ee_target_pos = grasp_center + world_offset
         
-        # 添加坐标系转换
+        # Add coordinate system transformation
         combined_transform = np.array([
             [0, -1, 0],
             [0, 0, -1],
             [1, 0, 0]
         ])
         
-        # 应用合并后的转换
+        # Apply combined transformation
         R_world = R @ combined_transform
         
-        # 将旋转矩阵转换为四元数
+        # Convert rotation matrix to quaternion
         from scipy.spatial.transform import Rotation
         rot_world = Rotation.from_matrix(R_world)
         euler_world = rot_world.as_euler('xyz', degrees=True)
         
-        # 定义pose 2（最终抓取位姿）
+        # Define pose 2 (final grasp pose)
         pose2_pos = ee_target_pos
         pose2_orn = p.getQuaternionFromEuler([euler_world[0]/180*np.pi, euler_world[1]/180*np.pi, euler_world[2]/180*np.pi])
         
-        # 计算pose 1（抓取前位置）- 沿着pose 2自身的z轴往后退
+        # Calculate pose 1 (pre-grasp position) - move along z-axis of pose 2 backwards
         pose2_rot_matrix = R_world
         z_axis = pose2_rot_matrix[:, 2]
         pose1_pos = pose2_pos - 0.15 * z_axis
@@ -667,35 +667,35 @@ class GraspExecution:
     
     def execute_grasp(self, best_grasp):
         """
-        执行完整的抓取过程
+        Execute complete grasping process
         
-        参数:
-            best_grasp: 最佳抓取姿态(R, grasp_center)
+        Parameters:
+            best_grasp: Best grasp pose (R, grasp_center)
             
-        返回:
-            bool: 抓取是否成功
+        Returns:
+            bool: True if grasping is successful, False otherwise
         """
-        # 计算抓取姿态
+        # Calculate grasping pose
         pose1_pos, pose1_orn, pose2_pos, pose2_orn = self.compute_grasp_poses(best_grasp)
         
-        # 获取当前机械臂关节角度
+        # Get current robot joint angles
         start_joints = self.sim.robot.get_joint_positions()
         
-        # 解算预抓取位置的IK
+        # Solve IK for pre-grasp position
         target_joints = self.ik_solver.solve(pose1_pos, pose1_orn, start_joints, max_iters=50, tolerance=0.001)
         
         if target_joints is None:
-            print("无法解算IK，无法移动到抓取前位置")
+            print("IK cannot be solved, cannot move to pre-grasp position")
             return False
         
-        # 生成并执行到预抓取位置的轨迹
+        # Generate and execute trajectory to pre-grasp position
         trajectory = self.trajectory_planner.generate_joint_trajectory(start_joints, target_joints, steps=100)
         self._execute_trajectory(trajectory)
         
-        # 打开爪子
+        # Open gripper
         self.open_gripper()
         
-        # 移动到最终抓取位置
+        # Move to final grasp position
         current_joints = self.sim.robot.get_joint_positions()
         pose2_trajectory = self.trajectory_planner.generate_cartesian_trajectory(
             self.sim.robot.id, 
@@ -708,24 +708,24 @@ class GraspExecution:
         )
         
         if not pose2_trajectory:
-            print("无法生成到最终抓取位置的轨迹")
+            print("Cannot generate trajectory to final grasp position")
             return False
         
         self._execute_trajectory(pose2_trajectory)
         
-        # 等待稳定
+        # Wait for stabilization
         self._wait(0.5)
         
-        # 关闭爪子抓取物体
+        # Close gripper to grasp object
         self.close_gripper()
         
-        # 提升物体
+        # Lift object
         success = self.lift_object()
         
         return success
     
     def _execute_trajectory(self, trajectory, speed=1/240.0):
-        """执行轨迹"""
+        """Execute trajectory"""
         for joint_target in trajectory:
             self.sim.robot.position_control(joint_target)
             for _ in range(1):
@@ -734,7 +734,7 @@ class GraspExecution:
                 time.sleep(speed)
     
     def _wait(self, seconds):
-        """等待指定的秒数"""
+        """Wait for specified seconds"""
         import time
         steps = int(seconds * 240)
         for _ in range(steps):
@@ -742,7 +742,7 @@ class GraspExecution:
             time.sleep(1/240.)
     
     def open_gripper(self, width=0.04):
-        """打开机器人爪子"""
+        """Open robot gripper"""
         p.setJointMotorControlArray(
             self.sim.robot.id,
             jointIndices=self.sim.robot.gripper_idx,
@@ -752,7 +752,7 @@ class GraspExecution:
         self._wait(0.5)
     
     def close_gripper(self, width=0.005):
-        """关闭机器人爪子抓取物体"""
+        """Close robot gripper to grasp object"""
         p.setJointMotorControlArray(
             self.sim.robot.id,
             jointIndices=self.sim.robot.gripper_idx,
@@ -762,29 +762,29 @@ class GraspExecution:
         self._wait(1.0)
     
     def lift_object(self, height=0.5):
-        """抓取物体后将其提升到指定高度"""
-        # 获取当前末端执行器位置和方向
+        """Grasp object and lift it to specified height"""
+        # Get current end-effector position and orientation
         current_ee_pos, current_ee_orn = self.sim.robot.get_ee_pose()
         
-        # 计算向上提升后的位置
+        # Calculate lifted position
         lift_pos = current_ee_pos.copy()
         lift_pos[2] += height
         
-        # 获取当前关节角度
+        # Get current joint angles
         current_joints = self.sim.robot.get_joint_positions()
         
-        # 解算提升位置的IK
+        # Solve IK for lifted position
         lift_target_joints = self.ik_solver.solve(lift_pos, current_ee_orn, current_joints, max_iters=50, tolerance=0.001)
         
         if lift_target_joints is None:
-            print("无法解算提升位置的IK，无法提升物体")
+            print("IK cannot be solved for lifted position, cannot lift object")
             return False
         
-        # 生成并执行提升轨迹
+        # Generate and execute lifting trajectory
         lift_trajectory = self.trajectory_planner.generate_joint_trajectory(current_joints, lift_target_joints, steps=100)
         
         if not lift_trajectory:
-            print("无法生成提升轨迹")
+            print("Cannot generate lifting trajectory")
             return False
         
         self._execute_trajectory(lift_trajectory, speed=1/240.0)
@@ -792,25 +792,25 @@ class GraspExecution:
 
     def execute_complete_grasp(self, bbox, point_clouds, visualize=True):
         """
-        执行抓取规划和执行的完整流程
+        Execute complete process of grasping planning and execution
         
-        参数:
-        bbox: 边界框对象
-        point_clouds: 收集的点云数据
-        visualize: 是否可视化抓取过程
+        Parameters:
+        bbox: Boundary box object
+        point_clouds: Collected point cloud data
+        visualize: Whether to visualize grasping process
         
-        返回:
-        success: 抓取是否成功
-        self: 抓取执行器对象（如果抓取成功）
+        Returns:
+        success: True if grasping is successful, False otherwise
+        self: Grasping executor object (if grasping is successful)
         """
         import open3d as o3d
         from src.grasping import grasping_mesh
         from src.point_cloud.object_mesh import visualize_3d_objs
         
-        print("\n步骤3: 抓取规划和执行...")
+        print("\nStep 3: Grasping planning and execution...")
         
-        # 合并点云
-        print("\n准备合并点云...")
+        # Merge point clouds
+        print("\nPreparing to merge point clouds...")
         merged_pcd = None
         for data in point_clouds:
             if 'point_cloud' in data and data['point_cloud'] is not None:
@@ -820,29 +820,29 @@ class GraspExecution:
                     merged_pcd += data['point_cloud']
         
         if merged_pcd is None:
-            print("错误：无法合并点云，终止抓取")
+            print("Error: Cannot merge point clouds, grasping terminated")
             return False, None
         
-        # 获取边界框信息
+        # Get boundary box information
         center = bbox.get_center()
         rotation_matrix = bbox.get_rotation_matrix()
         min_point, max_point = bbox.get_aabb()
         obb_corners = bbox.get_corners()
         
-        # 获取旋转边界框内的坐标
+        # Get rotated boundary box coordinates
         points_rotated = np.dot(np.asarray(merged_pcd.points) - center, rotation_matrix)
         min_point_rotated = np.min(points_rotated, axis=0)
         max_point_rotated = np.max(points_rotated, axis=0)
         
-        print(f"\n边界框信息:")
-        print(f"质心坐标: {center}")
-        print(f"旋转坐标系中最小点: {min_point_rotated}")
-        print(f"旋转坐标系中最大点: {max_point_rotated}")
+        print(f"\nBoundary box information:")
+        print(f"Centroid coordinates: {center}")
+        print(f"Minimum point in rotated coordinate system: {min_point_rotated}")
+        print(f"Maximum point in rotated coordinate system: {max_point_rotated}")
         
         grasp_generator = GraspGeneration()
         
-        # 生成抓取候选
-        print("\n生成抓取候选...")
+        # Generate grasping candidates
+        print("\nGenerating grasping candidates...")
         sampled_grasps = grasp_generator.sample_grasps(
             center, 
             num_grasps=100, 
@@ -853,14 +853,14 @@ class GraspExecution:
             center_rotated=center
         )
         
-        # 为每个抓取创建网格
+        # Create mesh for each grasping candidate
         all_grasp_meshes = []
         for grasp in sampled_grasps:
             R, grasp_center = grasp
             all_grasp_meshes.append(grasping_mesh.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
         
-        # 评估抓取质量
-        print("\n评估抓取质量...")
+        # Evaluate grasping quality
+        print("\nEvaluating grasping quality...")
         
         best_grasp = None
         best_grasp_mesh = None
@@ -884,47 +884,47 @@ class GraspExecution:
                     highest_quality = grasp_quality
                     best_grasp = pose
                     best_grasp_mesh = grasp_mesh
-                    print(f"找到更好的抓取，质量: {grasp_quality:.3f}")
+                    print(f"Found better grasp, quality: {grasp_quality:.3f}")
         
         if best_grasp is None:
-            print("未找到有效抓取！")
+            print("No valid grasp found!")
             return False, None
         
-        print(f"\n找到最佳抓取，质量分数: {highest_quality:.4f}")
+        print(f"\nFound best grasp, quality score: {highest_quality:.4f}")
         
-        # 计算抓取姿态
+        # Calculate grasping pose
         pose1_pos, pose1_orn, pose2_pos, pose2_orn = self.compute_grasp_poses(best_grasp)
         
-        # 可视化抓取姿态
+        # Visualize grasping pose
         if visualize:
             grasp_generator.visualize_grasp_poses(
                 pose1_pos, pose1_orn, pose2_pos, pose2_orn, axis_length=0.1
             )
         
-        # 执行抓取
-        print("\n开始执行抓取...")
+        # Execute grasping
+        print("\nStarting to execute grasping...")
         success = self.execute_grasp(best_grasp)
         
         if success:
-            print("\n抓取成功！")
+            print("\nGrasping successful!")
         else:
-            print("\n抓取失败...")
+            print("\nGrasping failed...")
         
-        # 在找到最佳抓取后添加可视化代码
+        # Add visualization code after finding the best grasp
         if best_grasp is not None and visualize:
-            # 创建点云的三角网格
+            # Create triangle mesh from point cloud
             obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
                 pcd=merged_pcd, 
                 alpha=0.08
             )
             
-            # 准备可视化的网格列表
+            # Prepare list of meshes for visualization
             vis_meshes = [obj_triangle_mesh]
             
-            # 将最佳抓取网格添加到列表
+            # Add best grasp mesh to list
             vis_meshes.extend(best_grasp_mesh)
             
-            # 调用可视化函数
+            # Call visualization function
             visualize_3d_objs(vis_meshes)
         
         return success, self if success else None
