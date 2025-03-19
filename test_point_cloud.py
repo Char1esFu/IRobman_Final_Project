@@ -12,7 +12,7 @@ from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 # from src.potential_field import PotentialFieldPlanner
-from src.grasping.grasp_generation_new import GraspGeneration
+from src.grasping.grasping import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import utils
 from scipy.spatial.transform import Rotation
