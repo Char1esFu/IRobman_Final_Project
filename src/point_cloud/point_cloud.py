@@ -6,7 +6,7 @@ import open3d as o3d
 import time
 import random
 from scipy.spatial.transform import Rotation
-from src.path_planning.planning import TrajectoryPlanner
+from src.path_planning.simple_planning import SimpleTrajectoryPlanner
 
 class PointCloudCollector:
     def __init__(self, config, sim):
@@ -367,7 +367,7 @@ class PointCloudCollector:
         
         # 生成轨迹
         print("为高点观察位置生成轨迹...")
-        high_point_trajectory = TrajectoryPlanner.generate_joint_trajectory(initial_joints, high_point_target_joints, steps=100)
+        high_point_trajectory = SimpleTrajectoryPlanner.generate_joint_trajectory(initial_joints, high_point_target_joints, steps=100)
         if not high_point_trajectory:
             print("无法生成到高点观察位置的轨迹，跳过高点点云采集")
         else:
@@ -512,7 +512,7 @@ class PointCloudCollector:
             trajectory = []
             if choice == 1:
                 print("生成线性笛卡尔轨迹...")
-                trajectory = TrajectoryPlanner.generate_cartesian_trajectory(
+                trajectory = SimpleTrajectoryPlanner.generate_cartesian_trajectory(
                     self.sim.robot.id, 
                     self.sim.robot.arm_idx, 
                     self.sim.robot.ee_idx, 
@@ -523,7 +523,7 @@ class PointCloudCollector:
                 )
             elif choice == 2:
                 print("生成线性关节空间轨迹...")
-                trajectory = TrajectoryPlanner.generate_joint_trajectory(saved_joints, target_joints, steps=100)
+                trajectory = SimpleTrajectoryPlanner.generate_joint_trajectory(saved_joints, target_joints, steps=100)
             
             if not trajectory:
                 print(f"无法为视点 {viewpoint_idx + 1} 生成轨迹。跳过...")

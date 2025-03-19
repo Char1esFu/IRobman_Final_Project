@@ -614,8 +614,8 @@ class GraspExecution:
         self.sim = sim
         from src.ik_solver import DifferentialIKSolver
         self.ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-        from src.path_planning.planning import TrajectoryPlanner
-        self.trajectory_planner = TrajectoryPlanner
+        from src.path_planning.simple_planning import SimpleTrajectoryPlanner
+        self.trajectory_planner = SimpleTrajectoryPlanner
     
     def compute_grasp_poses(self, best_grasp):
         """

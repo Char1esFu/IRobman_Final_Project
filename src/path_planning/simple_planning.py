@@ -2,12 +2,12 @@ import numpy as np
 import pybullet as p
 from typing import List, Tuple, Optional
 
-class TrajectoryPlanner:
+class SimpleTrajectoryPlanner:
     """
     轨迹规划器，用于生成机器人移动轨迹
     """
     
-    @staticmethod
+    # @staticmethod
     def generate_joint_trajectory(start_joints: List[float], end_joints: List[float], steps: int = 100) -> List[List[float]]:
         """
         生成从起始到结束关节位置的平滑轨迹
@@ -28,7 +28,7 @@ class TrajectoryPlanner:
             trajectory.append(point)
         return trajectory
     
-    @staticmethod
+    # @staticmethod
     def generate_cartesian_trajectory(robot_id: int, 
                                     arm_idx: List[int], 
                                     ee_idx: int, 

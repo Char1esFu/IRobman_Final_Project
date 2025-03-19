@@ -18,7 +18,7 @@ from src.path_planning.rrt_star_cartesian import RRTStarCartesianPlanner
 from src.obstacle_tracker import ObstacleTracker
 from src.grasping.grasping import GraspGeneration, GraspExecution
 from src.ik_solver import DifferentialIKSolver
-import src.grasping.utils as utils
+from src.grasping import grasping_utils
 
 def run_exp(config: Dict[str, Any]):
     # Example Experiment Runner File
@@ -186,7 +186,7 @@ def execute_grasping(sim, bbox, point_clouds, visualize=True):
     
     if merged_pcd is None:
         print("错误：无法合并点云，终止抓取")
-        return False
+        return False, None
     
     # 获取边界框信息
     center = bbox.get_center()
@@ -222,7 +222,7 @@ def execute_grasping(sim, bbox, point_clouds, visualize=True):
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
-        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+        all_grasp_meshes.append(grasping_utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
     
     # 评估抓取质量
     print("\n评估抓取质量...")
@@ -446,6 +446,25 @@ def execute_path_planning(sim, grasp_executor, planning_type='joint', visualize=
         time.sleep(0.01)
     
     print("\n路径执行完成")
+    
+    # 放下物体
+    print("\n放下物体...")
+    # 打开爪子
+    open_gripper_width = 0.04  # 打开爪子的宽度
+    p.setJointMotorControlArray(
+        robot.id,
+        jointIndices=robot.gripper_idx,
+        controlMode=p.POSITION_CONTROL,
+        targetPositions=[open_gripper_width, open_gripper_width]
+    )
+    
+    # 等待爪子打开
+    for _ in range(int(2.0 * 240)):  # 等待2秒
+        sim.step()
+        time.sleep(1/240.)
+    
+    print("爪子已打开，物体已放置到托盘位置")
+    
     return True
 
 
@@ -457,7 +476,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbPottedMeatCan",
+    parser.add_argument('--object', type=str, default="YcbGelatinBox",
                         help='目标物体名称')
     parser.add_argument('--no-vis', action='store_true',
                         help='禁用点云可视化')

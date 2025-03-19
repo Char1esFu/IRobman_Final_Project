@@ -14,7 +14,7 @@ from src.path_planning.rrt_star import RRTStarPlanner
 # from src.potential_field import PotentialFieldPlanner
 from src.grasping.grasping import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
-from src.grasping import utils
+from src.grasping import grasping_utils
 from scipy.spatial.transform import Rotation
 
 # Check if PyBullet has NumPy support enabled
@@ -576,7 +576,7 @@ def run_grasping(config, sim, collected_point_clouds):
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
-        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+        all_grasp_meshes.append(grasping_utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
 
     # 从点云创建三角网格用于可视化
     print("从点云创建三角网格...")
@@ -887,7 +887,7 @@ def run_grasping(config, sim, collected_point_clouds):
 
     # 显示可视化结果
     print("显示抓取可视化结果...")
-    utils.visualize_3d_objs(vis_meshes)
+    grasping_utils.visualize_3d_objs(vis_meshes)
     
     # 关闭文件
     grasp_center_file.close()
