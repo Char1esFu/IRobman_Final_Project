@@ -5,6 +5,7 @@ import time
 import numpy as np
 import argparse
 import pybullet as p
+import open3d as o3d
 
 from typing import Dict, Any
 
@@ -19,6 +20,7 @@ from src.obstacle_tracker import ObstacleTracker
 from src.grasping.grasping import GraspGeneration, GraspExecution
 from src.ik_solver import DifferentialIKSolver
 from src.grasping import grasping_mesh
+from src.point_cloud.object_mesh import visualize_3d_objs
 
 def run_exp(config: Dict[str, Any]):
     # Example Experiment Runner File
@@ -277,6 +279,23 @@ def execute_grasping(sim, bbox, point_clouds, visualize=True):
         print("\n抓取成功！")
     else:
         print("\n抓取失败...")
+    
+    # 在找到最佳抓取后添加可视化代码
+    if best_grasp is not None and visualize:
+        # 创建点云的三角网格
+        obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+            pcd=merged_pcd, 
+            alpha=0.08
+        )
+        
+        # 准备可视化的网格列表
+        vis_meshes = [obj_triangle_mesh]
+        
+        # 将最佳抓取网格添加到列表
+        vis_meshes.extend(best_grasp_mesh)
+        
+        # 调用可视化函数
+        visualize_3d_objs(vis_meshes)
     
     return success, grasp_executor if success else None
 
