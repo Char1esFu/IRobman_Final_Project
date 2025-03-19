@@ -457,7 +457,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbCrackerBox",
+    parser.add_argument('--object', type=str, default="YcbPottedMeatCan",
                         help='目标物体名称')
     parser.add_argument('--no-vis', action='store_true',
                         help='禁用点云可视化')

@@ -724,14 +724,14 @@ class GraspExecution:
         
         return success
     
-    def _execute_trajectory(self, trajectory, delay=1/240.0):
+    def _execute_trajectory(self, trajectory, speed=1/240.0):
         """执行轨迹"""
         for joint_target in trajectory:
             self.sim.robot.position_control(joint_target)
             for _ in range(1):
                 self.sim.step()
                 import time
-                time.sleep(delay)
+                time.sleep(speed)
     
     def _wait(self, seconds):
         """等待指定的秒数"""
@@ -787,5 +787,5 @@ class GraspExecution:
             print("无法生成提升轨迹")
             return False
         
-        self._execute_trajectory(lift_trajectory, delay=5/240.0)
+        self._execute_trajectory(lift_trajectory, speed=1/240.0)
         return True
