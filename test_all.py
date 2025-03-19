@@ -10,7 +10,7 @@ from pybullet_object_models import ycb_objects  # type:ignore
 from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
-from src.rrt_star import RRTStarPlanner
+from src.path_planning.rrt_star import RRTStarPlanner
 # from src.potential_field import PotentialFieldPlanner
 from src.grasping.grasping import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
