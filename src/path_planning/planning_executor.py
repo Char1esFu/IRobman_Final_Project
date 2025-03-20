@@ -115,7 +115,7 @@ class PlanningExecutor:
         # Execute trajectory
         print("\nExecuting trajectory...")
         # 调整步数和延迟基于速度因子
-        steps = int(5 * movement_speed_factor)  # 默认5步，乘以速度因子
+        steps = int(1 * movement_speed_factor)  # 默认5步，乘以速度因子
         delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
         self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
         

@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbMediumClamp",
+    parser.add_argument('--object', type=str, default="YcbTennisBall",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -96,42 +96,40 @@ if __name__ == "__main__":
     bbox = None
     grasp_success = False
     grasp_executor = None
-    
-    # Step 1: Collect point cloud
-    print("Step 1: Starting point cloud collection...")
+
     sim = Simulation(config)
-    collector = PointCloudCollector(config, sim)
-    point_clouds = collector.collect_point_clouds(args.object)
-    print(f"Successfully collected {len(point_clouds)} point clouds.")
     
-    # Check and print the maximum z-axis point from the high viewpoint cloud
-    for data in point_clouds:
-        if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
-            print(f"\nMaximum z-axis point from the high viewpoint cloud: {data['max_z_point']}")
-    
-    # Step 2: Compute and visualize bounding box
-    if point_clouds:
-        bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
+    while not grasp_success:
+        # Step 1: Collect point cloud
+        print("Step 1: Starting point cloud collection...")
         
-        # Step 3: Execute grasp (unless --no-grasp flag is set)
-        if not args.no_grasp and bbox is not None:
-            grasp_executor = GraspExecution(sim)
-            grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
+        collector = PointCloudCollector(config, sim)
+        point_clouds = collector.collect_point_clouds(args.object)
+        print(f"Successfully collected {len(point_clouds)} point clouds.")
+        
+        # Check and print the maximum z-axis point from the high viewpoint cloud
+        for data in point_clouds:
+            if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
+                print(f"\nMaximum z-axis point from the high viewpoint cloud: {data['max_z_point']}")
+        
+        # Step 2: Compute and visualize bounding box
+        if point_clouds:
+            bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
             
-            # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
-            if grasp_success and not args.no_planning and grasp_executor is not None:
-                # Create path planning executor
-                planning_executor = PlanningExecutor(sim, config)
-                planning_success = planning_executor.execute_planning(
-                    grasp_executor, 
-                    planning_type=args.planning_type,
-                    visualize=True,
-                    movement_speed_factor=args.speed_factor
-                )
-                if planning_success:
-                    print(f"\n{'Cartesian space' if args.planning_type == 'cartesian' else 'Joint space'} path planning executed successfully!")
-                else:
-                    print(f"\n{'Cartesian space' if args.planning_type == 'cartesian' else 'Joint space'} path planning execution failed.")
+        # Step 3: Execute grasp (unless --no-grasp flag is set)
+
+        grasp_executor = GraspExecution(sim)
+        
+        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
+    # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
+    # Create path planning executor
+    planning_executor = PlanningExecutor(sim, config)
+    planning_success = planning_executor.execute_planning(
+        grasp_executor, 
+        planning_type=args.planning_type,
+        visualize=True,
+        movement_speed_factor=args.speed_factor
+    )
     
     input("\nPress Enter to close the simulation...")
     
