@@ -86,23 +86,45 @@ class PlanningExecutor:
         # Choose and use appropriate planner based on planning type
         if planning_type == 'cartesian':
             # Use Cartesian space planning
-            path, cost = self._execute_cartesian_planning(
-                start_joint_pos, goal_pos, goal_orn, visualize
+            planner = RRTStarCartesianPlanner(
+                robot_id=self.robot.id,
+                joint_indices=self.robot.arm_idx,
+                lower_limits=self.robot.lower_limits,
+                upper_limits=self.robot.upper_limits,
+                ee_link_index=self.robot.ee_idx,
+                obstacle_tracker=self.obstacle_tracker,
+                max_iterations=1000,
+                step_size=0.05,
+                goal_sample_rate=0.1,
+                search_radius=0.1,
+                goal_threshold=0.03
             )
-        else:
+            path, cost = planner.plan(start_joint_pos, goal_pos, goal_orn)
+        elif planning_type == 'joint':
             # Use joint space planning
-            path, cost = self._execute_joint_planning(
-                start_joint_pos, goal_pos, goal_orn, visualize
+            planner = RRTStarPlanner(
+                robot_id=self.robot.id,
+                joint_indices=self.robot.arm_idx,
+                lower_limits=self.robot.lower_limits,
+                upper_limits=self.robot.upper_limits,
+                ee_link_index=self.robot.ee_idx,
+                obstacle_tracker=self.obstacle_tracker,
+                max_iterations=1000,
+                step_size=0.2,
+                goal_sample_rate=0.05,
+                search_radius=0.5,
+                goal_threshold=0.1
             )
+            goal_joint_pos = self.ik_solver.solve(
+                goal_pos, goal_orn, start_joint_pos, max_iters=50, tolerance=0.001
+            )
+            path, cost = planner.plan(start_joint_pos, goal_joint_pos)
         
         if not path:
             print("No path found")
             return False
         
         print(f"Path found! Cost: {cost:.4f}, Number of path points: {len(path)}")
-        
-        # Get the planner used
-        planner = self._get_planner(planning_type)
         
         # Visualize trajectory
         if visualize and planner:
@@ -129,92 +151,8 @@ class PlanningExecutor:
         
         return True
     
-    def _execute_cartesian_planning(self, start_joint_pos, goal_pos, goal_orn, visualize):
-        """Execute Cartesian space planning"""
-        # Create Cartesian space planner
-        planner = RRTStarCartesianPlanner(
-            robot_id=self.robot.id,
-            joint_indices=self.robot.arm_idx,
-            lower_limits=self.robot.lower_limits,
-            upper_limits=self.robot.upper_limits,
-            ee_link_index=self.robot.ee_idx,
-            obstacle_tracker=self.obstacle_tracker,
-            max_iterations=1000,
-            step_size=0.05,
-            goal_sample_rate=0.1,
-            search_radius=0.1,
-            goal_threshold=0.03
-        )
-        
-        # Plan in Cartesian space
-        print(f"\nPlanning using Cartesian space RRT*...")
-        return planner.plan(start_joint_pos, goal_pos, goal_orn)
-    
-    def _execute_joint_planning(self, start_joint_pos, goal_pos, goal_orn, visualize):
-        """Execute joint space planning"""
-        # Create joint space planner
-        planner = RRTStarPlanner(
-            robot_id=self.robot.id,
-            joint_indices=self.robot.arm_idx,
-            lower_limits=self.robot.lower_limits,
-            upper_limits=self.robot.upper_limits,
-            ee_link_index=self.robot.ee_idx,
-            obstacle_tracker=self.obstacle_tracker,
-            max_iterations=1000,
-            step_size=0.2,
-            goal_sample_rate=0.05,
-            search_radius=0.5,
-            goal_threshold=0.1
-        )
-        
-        # Try to convert target Cartesian position to joint space
-        try:
-            goal_joint_pos = self.ik_solver.solve(
-                goal_pos, goal_orn, start_joint_pos, max_iters=50, tolerance=0.001
-            )
-            print(f"Target position IK solution: {goal_joint_pos}")
-        except Exception as e:
-            print(f"Unable to find IK solution for target position: {e}")
-            return None, 0
-        
-        # Plan in joint space
-        print(f"\nPlanning using joint space RRT*...")
-        return planner.plan(start_joint_pos, goal_joint_pos)
-    
-    def _get_planner(self, planning_type):
-        """Get the corresponding planner instance based on planning type"""
-        if planning_type == 'cartesian':
-            return RRTStarCartesianPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
-                obstacle_tracker=self.obstacle_tracker
-            )
-        elif planning_type == 'joint':
-            return RRTStarPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
-                obstacle_tracker=self.obstacle_tracker
-            )
-    
     def _visualize_goal_position(self, goal_pos):
-        """Visualize target position"""
-        visual_id = p.createVisualShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=0.03,  # 3cm radius sphere
-            rgbaColor=[0, 0, 1, 0.7]  # Blue semi-transparent
-        )
-        goal_marker_id = p.createMultiBody(
-            baseMass=0,  # Mass of 0 indicates static object
-            baseVisualShapeIndex=visual_id,
-            basePosition=goal_pos.tolist()
-        )
-        
+        """Visualize target position"""        
         # Add coordinate axes at target position
         axis_length = 0.1  # 10cm long axes
         p.addUserDebugLine(

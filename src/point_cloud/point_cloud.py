@@ -321,20 +321,6 @@ class PointCloudCollector:
         """
         print("Starting point cloud collection...")
         
-        # If no target object name specified, randomly select one
-        if target_obj_name is None:
-            # Randomly select an object from YCB dataset
-            object_root_path = self.sim.object_root_path
-            files = glob.glob(os.path.join(object_root_path, "Ycb*"))
-            obj_names = [os.path.basename(file) for file in files]
-            target_obj_name = random.choice(obj_names)
-            print(f"Resetting simulation with random object: {target_obj_name}")
-        else:
-            print(f"Resetting simulation with specified object: {target_obj_name}")
-        
-        # Reset simulation with target object
-        self.sim.reset(target_obj_name)
-        
         # Initialize point cloud collection list
         collected_data = []
         

@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbTennisBall",
+    parser.add_argument('--object', type=str, default="YcbPottedMeatCan",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -98,12 +98,21 @@ if __name__ == "__main__":
     grasp_executor = None
 
     sim = Simulation(config)
-    
-    while not grasp_success:
+    sim.reset(args.object)
+    collector = PointCloudCollector(config, sim)
+
+    # 设置最大尝试次数和计数器
+    max_attempts = 2
+    attempt_count = 0
+
+    while not grasp_success and attempt_count < max_attempts:
+        attempt_count += 1
+        print(f"\n尝试抓取 #{attempt_count}/{max_attempts}")
+        
         # Step 1: Collect point cloud
         print("Step 1: Starting point cloud collection...")
         
-        collector = PointCloudCollector(config, sim)
+        
         point_clouds = collector.collect_point_clouds(args.object)
         print(f"Successfully collected {len(point_clouds)} point clouds.")
         
@@ -117,20 +126,34 @@ if __name__ == "__main__":
             bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
             
         # Step 3: Execute grasp (unless --no-grasp flag is set)
-
         grasp_executor = GraspExecution(sim)
-        
         grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
-    # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
-    # Create path planning executor
-    planning_executor = PlanningExecutor(sim, config)
-    planning_success = planning_executor.execute_planning(
-        grasp_executor, 
-        planning_type=args.planning_type,
-        visualize=True,
-        movement_speed_factor=args.speed_factor
-    )
+        print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
+        
+        if not grasp_success and attempt_count < max_attempts:
+            print(f"将在3秒后重试...")
+            time.sleep(3)  # 给一些时间让物理引擎稳定
     
+    if not grasp_success:
+        print(f"\n达到最大尝试次数 ({max_attempts})，抓取失败")
+        input("\nPress Enter to close the simulation...")
+        if sim is not None:
+            sim.close()
+        exit(0)
+        
+    print("\n抓取成功！准备执行路径规划...")
+
+    # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
+    if not args.no_planning and grasp_executor is not None:
+        # Create path planning executor
+        planning_executor = PlanningExecutor(sim, config)
+        planning_success = planning_executor.execute_planning(
+            grasp_executor, 
+            planning_type=args.planning_type,
+            visualize=True,
+            movement_speed_factor=args.speed_factor
+        )
+
     input("\nPress Enter to close the simulation...")
     
     # Close simulation

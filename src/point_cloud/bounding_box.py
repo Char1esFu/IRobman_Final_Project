@@ -153,43 +153,6 @@ class BoundingBox:
         
         return self.debug_lines
     
-    def add_centroid_visualization(self, radius=0.01, color=(1, 0, 0, 1)):
-        """
-        Visualize the centroid of the bounding box in PyBullet
-        
-        Parameters:
-        radius: Sphere radius, default is 0.01 meters
-        color: Sphere color (R,G,B,A), default is red
-        
-        Returns:
-        centroid_id: Object ID for visualization
-        """
-        if self.center is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        # Create a sphere to represent the centroid
-        visual_id = p.createVisualShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=radius,
-            rgbaColor=color
-        )
-        
-        centroid_id = p.createMultiBody(
-            baseMass=0,  # Mass of 0 indicates a static object
-            baseVisualShapeIndex=visual_id,
-            basePosition=self.center.tolist()
-        )
-        
-        # Add text label
-        p.addUserDebugText(
-            f"Centroid ({self.center[0]:.3f}, {self.center[1]:.3f}, {self.center[2]:.3f})",
-            self.center + np.array([0, 0, 0.05]),  # Display text 5cm above centroid
-            [1, 1, 1],  # White text
-            1.0  # Text size
-        )
-        
-        return centroid_id
-    
     def add_axes_visualization(self, length=0.1):
         """
         Visualize the principal axes of the bounding box in PyBullet
@@ -369,9 +332,6 @@ class BoundingBox:
         # Visualize bounding box
         print("\nVisualizing bounding box...")
         bbox.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
-        
-        # Visualize centroid
-        centroid_id = bbox.add_centroid_visualization(radius=0.02)
         
         # Visualize principal axes
         axis_lines = bbox.add_axes_visualization(length=0.15)

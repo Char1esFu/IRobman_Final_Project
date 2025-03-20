@@ -932,18 +932,6 @@ def run_planning(config, sim):
     # goal_pos[1] -= 0.2
     print(f"托盘目标位置: {goal_pos}")
     
-    # 在PyBullet中可视化托盘目标位置
-    visual_id = p.createVisualShape(
-        shapeType=p.GEOM_SPHERE,
-        radius=0.03,  # 3cm半径的球体
-        rgbaColor=[0, 0, 1, 0.7]  # 蓝色半透明
-    )
-    goal_marker_id = p.createMultiBody(
-        baseMass=0,  # 质量为0表示静态物体
-        baseVisualShapeIndex=visual_id,
-        basePosition=goal_pos.tolist()
-    )
-    
     # 添加目标位置坐标轴
     axis_length = 0.1  # 10cm长的坐标轴
     p.addUserDebugLine(
