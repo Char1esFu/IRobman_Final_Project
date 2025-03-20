@@ -170,20 +170,20 @@ class DifferentialIKSolver:
                 J.T @ error
             )
             
-            # 更新关节角度，并检查关节限位
+            # Update joint angles and check joint limits
             new_joints = current_joints + delta_q
             
-            # 应用关节限位约束
+            # Apply joint limit constraints
             for i in range(min(len(new_joints), len(joint_limits))):
                 lower_limit, upper_limit = joint_limits[i]
                 if new_joints[i] < lower_limit:
                     new_joints[i] = lower_limit
-                    print(f"警告：关节 {i} 超出下限，被截断至 {lower_limit}")
+                    print(f"Warning: Joint {i} exceeded lower limit, truncated to {lower_limit}")
                 elif new_joints[i] > upper_limit:
                     new_joints[i] = upper_limit
-                    print(f"警告：关节 {i} 超出上限，被截断至 {upper_limit}")
+                    print(f"Warning: Joint {i} exceeded upper limit, truncated to {upper_limit}")
             
-            # 更新关节角度
+            # Update joint angles
             current_joints = new_joints
             
             # set joint state in shadow client only during iterations

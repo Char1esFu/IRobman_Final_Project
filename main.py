@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbGelatinBox",
+    parser.add_argument('--object', type=str, default="YcbMediumClamp",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -75,6 +75,8 @@ if __name__ == "__main__":
                         help='Disable path planning')
     parser.add_argument('--planning-type', type=str, choices=['joint', 'cartesian'], default='joint',
                         help='Select path planning type: joint (joint space) or cartesian (Cartesian space)')
+    parser.add_argument('--speed-factor', type=float, default=1.0,
+                        help='Movement speed factor for trajectory execution (default=1.0, higher=slower)')
     
     args = parser.parse_args()
     
@@ -123,7 +125,8 @@ if __name__ == "__main__":
                 planning_success = planning_executor.execute_planning(
                     grasp_executor, 
                     planning_type=args.planning_type,
-                    visualize=True
+                    visualize=True,
+                    movement_speed_factor=args.speed_factor
                 )
                 if planning_success:
                     print(f"\n{'Cartesian space' if args.planning_type == 'cartesian' else 'Joint space'} path planning executed successfully!")

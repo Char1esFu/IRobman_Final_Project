@@ -34,7 +34,7 @@ class PlanningExecutor:
             damping=0.05
         )
     
-    def execute_planning(self, grasp_executor, planning_type='joint', visualize=True) -> bool:
+    def execute_planning(self, grasp_executor, planning_type='joint', visualize=True, movement_speed_factor=1.0) -> bool:
         """
         Execute path planning
         
@@ -42,6 +42,7 @@ class PlanningExecutor:
         grasp_executor: Grasp executor object
         planning_type: Planning type ('joint' or 'cartesian')
         visualize: Whether to visualize the planning process
+        movement_speed_factor: Speed factor for trajectory execution (lower = faster, higher = slower)
         
         Returns:
         success: Whether planning was successful
@@ -66,11 +67,7 @@ class PlanningExecutor:
             (min_lim[1] + max_lim[1])/2 - 0.1,
             max_lim[2] + 0.2
         ])
-        print(f"Tray target position: {goal_pos}")
-        
-        # Target position and orientation (above the tray, at a reasonable distance)
-        tray_approach_pos = goal_pos.copy()  # Position above the tray
-        tray_orn = p.getQuaternionFromEuler([0, np.pi, 0])  # Vertically downward
+        goal_orn = p.getQuaternionFromEuler([0, np.pi, 0])  # Vertically downward
         
         # Visualize tray target position in PyBullet
         if visualize:
@@ -90,12 +87,12 @@ class PlanningExecutor:
         if planning_type == 'cartesian':
             # Use Cartesian space planning
             path, cost = self._execute_cartesian_planning(
-                start_joint_pos, tray_approach_pos, tray_orn, visualize
+                start_joint_pos, goal_pos, goal_orn, visualize
             )
         else:
             # Use joint space planning
             path, cost = self._execute_joint_planning(
-                start_joint_pos, tray_approach_pos, tray_orn, visualize
+                start_joint_pos, goal_pos, goal_orn, visualize
             )
         
         if not path:
@@ -117,7 +114,10 @@ class PlanningExecutor:
         
         # Execute trajectory
         print("\nExecuting trajectory...")
-        self._execute_trajectory(joint_indices, smooth_path)
+        # 调整步数和延迟基于速度因子
+        steps = int(5 * movement_speed_factor)  # 默认5步，乘以速度因子
+        delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
+        self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
         
         print("\nPath execution completed")
         
@@ -254,16 +254,24 @@ class PlanningExecutor:
             p.addUserDebugLine(
                 start_ee, end_ee, [0, 0, 1], 3, 0)
     
-    def _execute_trajectory(self, joint_indices, trajectory):
-        """Execute trajectory"""
+    def _execute_trajectory(self, joint_indices, trajectory, steps=5, delay=1/240.0):
+        """Execute trajectory with adjustable speed
+        
+        Parameters:
+        joint_indices: Joint indices to control
+        trajectory: List of joint positions to execute
+        steps: Number of simulation steps for each trajectory point (higher = slower movement)
+        delay: Delay between steps (higher = slower movement)
+        """
         for joint_pos in trajectory:
             # Set joint positions
             for i, idx in enumerate(joint_indices):
                 p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, joint_pos[i])
             
-            # Update simulation
-            self.sim.step()
-            time.sleep(0.01)
+            # Run multiple simulation steps for each trajectory point
+            for _ in range(steps):
+                self.sim.step()
+                time.sleep(delay)
     
     def _release_object(self):
         """Release object"""
