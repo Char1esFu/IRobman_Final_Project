@@ -15,7 +15,7 @@ from src.simulation import Simulation
 from src.point_cloud.point_cloud import PointCloudCollector
 from src.point_cloud.bounding_box import BoundingBox
 from src.path_planning.planning_executor import PlanningExecutor
-from src.grasping.grasping import GraspExecution
+from src.grasping.grasp_execution import GraspExecution
 
 def run_exp(config: Dict[str, Any]):
     # Example Experiment Runner File
@@ -147,6 +147,19 @@ if __name__ == "__main__":
         exit(0)
         
     print("\n抓取成功！准备执行路径规划...")
+    
+    # 清理边界框可视化
+    if bbox is not None:
+        print("清理物体边界框可视化...")
+        bbox.clear_visualization()
+        
+    # 清理所有用户调试线条和文本（包括坐标轴和标签）
+    # 这将移除所有的Pose 1和Pose 2坐标轴以及其他可视化元素
+    line_ids = list(range(100))  # 一个足够大的范围来覆盖所有可能的调试线条ID
+    for line_id in line_ids:
+        p.removeUserDebugItem(line_id)
+    
+    print("已清理所有可视化元素")
 
     # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
     if not args.no_planning and grasp_executor is not None:
