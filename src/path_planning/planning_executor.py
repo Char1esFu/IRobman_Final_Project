@@ -34,7 +34,8 @@ class PlanningExecutor:
             damping=0.05
         )
     
-    def execute_planning(self, grasp_executor, planning_type='joint', visualize=True, movement_speed_factor=1.0) -> bool:
+    def execute_planning(self, grasp_executor, planning_type='joint', visualize=True, 
+                         movement_speed_factor=1.0, enable_replan=False, replan_steps=10) -> bool:
         """
         Execute path planning
         
@@ -43,11 +44,14 @@ class PlanningExecutor:
         planning_type: Planning type ('joint' or 'cartesian')
         visualize: Whether to visualize the planning process
         movement_speed_factor: Speed factor for trajectory execution (lower = faster, higher = slower)
+        enable_replan: Whether to enable dynamic replanning
+        replan_steps: Number of steps to execute before replanning (if enable_replan is True)
         
         Returns:
         success: Whether planning was successful
         """
         print(f"\nStep 4: {'Cartesian space' if planning_type == 'cartesian' else 'Joint space'} path planning...")
+        print(f"动态重规划: {'启用' if enable_replan else '禁用'}")
         
         # Get robot's current state (position after grasping) as starting point
         joint_indices = self.robot.arm_idx
@@ -56,9 +60,6 @@ class PlanningExecutor:
         # Get joint limits
         lower_limits = self.robot.lower_limits
         upper_limits = self.robot.upper_limits
-        
-        # Get current joint positions
-        start_joint_pos = self.robot.get_joint_positions()
         
         # Get target tray position
         min_lim, max_lim = self.sim.goal._get_goal_lims()
@@ -73,75 +74,191 @@ class PlanningExecutor:
         if visualize:
             self._visualize_goal_position(goal_pos)
         
-        # Use static camera to get obstacle positions
-        rgb_static, depth_static, seg_static = self.sim.get_static_renders()
-        detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-        tracked_positions = self.obstacle_tracker.update(detections)
-        
-        # Visualize obstacle bounding boxes (if needed)
-        if visualize:
-            bounding_box_ids = self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
-            print(f"Detected {len(tracked_positions)} obstacles")
-        
-        # Choose and use appropriate planner based on planning type
-        if planning_type == 'cartesian':
-            # Use Cartesian space planning
-            planner = RRTStarCartesianPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
-                obstacle_tracker=self.obstacle_tracker,
-                max_iterations=1000,
-                step_size=0.05,
-                goal_sample_rate=0.1,
-                search_radius=0.1,
-                goal_threshold=0.03
-            )
-            path, cost = planner.plan(start_joint_pos, goal_pos, goal_orn)
-        elif planning_type == 'joint':
-            # Use joint space planning
-            planner = RRTStarPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
-                obstacle_tracker=self.obstacle_tracker,
-                max_iterations=1000,
-                step_size=0.2,
-                goal_sample_rate=0.05,
-                search_radius=0.5,
-                goal_threshold=0.1
-            )
+        # 计算目标关节位置 (仅在关节空间规划中需要)
+        if planning_type == 'joint':
             goal_joint_pos = self.ik_solver.solve(
-                goal_pos, goal_orn, start_joint_pos, max_iters=50, tolerance=0.001
+                goal_pos, goal_orn, self.robot.get_joint_positions(), max_iters=50, tolerance=0.001
             )
-            path, cost = planner.plan(start_joint_pos, goal_joint_pos)
         
-        if not path:
-            print("No path found")
-            return False
-        
-        print(f"Path found! Cost: {cost:.4f}, Number of path points: {len(path)}")
-        
-        # Visualize trajectory
-        if visualize and planner:
-            self._visualize_path(planner, path)
-        
-        # Generate smooth trajectory
-        print("\nGenerating smooth trajectory...")
-        smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=20)
-        
-        # Execute trajectory
-        print("\nExecuting trajectory...")
-        # 调整步数和延迟基于速度因子
-        steps = int(1 * movement_speed_factor)  # 默认5步，乘以速度因子
-        delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
-        self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
-        
-        print("\nPath execution completed")
+        # 如果启用了重规划，我们将跟踪当前位置和目标位置
+        if enable_replan:
+            # 初始创建规划器 (后续会在循环中重用)
+            if planning_type == 'cartesian':
+                planner = RRTStarCartesianPlanner(
+                    robot_id=self.robot.id,
+                    joint_indices=self.robot.arm_idx,
+                    lower_limits=self.robot.lower_limits,
+                    upper_limits=self.robot.upper_limits,
+                    ee_link_index=self.robot.ee_idx,
+                    obstacle_tracker=self.obstacle_tracker,
+                    max_iterations=500,  # 为重规划减少迭代次数以加快速度
+                    step_size=0.05,
+                    goal_sample_rate=0.1,
+                    search_radius=0.1,
+                    goal_threshold=0.03
+                )
+            else:  # joint space planning
+                planner = RRTStarPlanner(
+                    robot_id=self.robot.id,
+                    joint_indices=self.robot.arm_idx,
+                    lower_limits=self.robot.lower_limits,
+                    upper_limits=self.robot.upper_limits,
+                    ee_link_index=self.robot.ee_idx,
+                    obstacle_tracker=self.obstacle_tracker,
+                    max_iterations=500,  # 为重规划减少迭代次数以加快速度
+                    step_size=0.2,
+                    goal_sample_rate=0.05,
+                    search_radius=0.5,
+                    goal_threshold=0.1
+                )
+            
+            # 主循环：执行路径、监测障碍物和重规划
+            print("\n开始执行带有动态重规划的轨迹...")
+            
+            # 调整执行速度参数
+            steps = max(1, int(10 * movement_speed_factor))
+            delay = (1/240.0) * movement_speed_factor
+            
+            current_joint_pos = self.robot.get_joint_positions()
+            goal_reached = False
+            
+            while not goal_reached:
+                # 更新障碍物位置
+                rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+                detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = self.obstacle_tracker.update(detections)
+                
+                # # 可视化障碍物边界框
+                # if visualize:
+                #     self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
+                #     print(f"检测到 {len(tracked_positions)} 个障碍物")
+                
+                # 从当前位置规划到目标
+                print("\n重新规划路径...")
+                if planning_type == 'cartesian':
+                    path, cost = planner.plan(current_joint_pos, goal_pos, goal_orn)
+                else:  # joint space planning
+                    path, cost = planner.plan(current_joint_pos, goal_joint_pos)
+                
+                if not path:
+                    print("无法找到有效路径，尝试再次规划...")
+                    time.sleep(0.5)  # 稍等一下再尝试
+                    continue
+                
+                print(f"找到路径! 代价: {cost:.4f}, 路径点数量: {len(path)}")
+                
+                # 可视化轨迹
+                if visualize and planner:
+                    self._visualize_path(planner, path)
+                
+                # 生成平滑轨迹
+                smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=5)  # 减少平滑步数以提高响应速度
+                
+                # 只执行轨迹的一部分，然后重新规划
+                subpath = smooth_path[:min(replan_steps, len(smooth_path))]
+                
+                # 执行子轨迹
+                for joint_pos in subpath:
+                    # 设置关节位置
+                    for i, idx in enumerate(joint_indices):
+                        p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, joint_pos[i])
+                    
+                    # 执行多个仿真步骤
+                    for _ in range(steps):
+                        self.sim.step()
+                        time.sleep(delay)
+                    
+                    # 更新当前位置
+                    current_joint_pos = self.robot.get_joint_positions()
+                
+                # 检查是否到达目标
+                if planning_type == 'joint':
+                    dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
+                    goal_reached = dist_to_goal < planner.goal_threshold
+                else:  # cartesian space
+                    current_ee_pos, _ = self.robot.get_ee_pose()
+                    dist_to_goal = np.linalg.norm(np.array(current_ee_pos) - np.array(goal_pos))
+                    goal_reached = dist_to_goal < 0.03  # 厘米级精度
+                
+                if goal_reached:
+                    print("\n目标位置到达!")
+            
+            print("\n轨迹执行完成")
+            
+        else:
+            # 不使用重规划的情况下，使用原始方法执行一次性规划
+            # Use static camera to get obstacle positions
+            rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+            detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+            tracked_positions = self.obstacle_tracker.update(detections)
+            
+            # Visualize obstacle bounding boxes (if needed)
+            if visualize:
+                bounding_box_ids = self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
+                print(f"Detected {len(tracked_positions)} obstacles")
+            
+            # 获取当前关节位置
+            start_joint_pos = self.robot.get_joint_positions()
+            
+            # Choose and use appropriate planner based on planning type
+            if planning_type == 'cartesian':
+                # Use Cartesian space planning
+                planner = RRTStarCartesianPlanner(
+                    robot_id=self.robot.id,
+                    joint_indices=self.robot.arm_idx,
+                    lower_limits=self.robot.lower_limits,
+                    upper_limits=self.robot.upper_limits,
+                    ee_link_index=self.robot.ee_idx,
+                    obstacle_tracker=self.obstacle_tracker,
+                    max_iterations=1000,
+                    step_size=0.05,
+                    goal_sample_rate=0.1,
+                    search_radius=0.1,
+                    goal_threshold=0.03
+                )
+                path, cost = planner.plan(start_joint_pos, goal_pos, goal_orn)
+            elif planning_type == 'joint':
+                # Use joint space planning
+                planner = RRTStarPlanner(
+                    robot_id=self.robot.id,
+                    joint_indices=self.robot.arm_idx,
+                    lower_limits=self.robot.lower_limits,
+                    upper_limits=self.robot.upper_limits,
+                    ee_link_index=self.robot.ee_idx,
+                    obstacle_tracker=self.obstacle_tracker,
+                    max_iterations=1000,
+                    step_size=0.2,
+                    goal_sample_rate=0.05,
+                    search_radius=0.5,
+                    goal_threshold=0.1
+                )
+                goal_joint_pos = self.ik_solver.solve(
+                    goal_pos, goal_orn, start_joint_pos, max_iters=50, tolerance=0.001
+                )
+                path, cost = planner.plan(start_joint_pos, goal_joint_pos)
+            
+            if not path:
+                print("No path found")
+                return False
+            
+            print(f"Path found! Cost: {cost:.4f}, Number of path points: {len(path)}")
+            
+            # Visualize trajectory
+            if visualize and planner:
+                self._visualize_path(planner, path)
+            
+            # Generate smooth trajectory
+            print("\nGenerating smooth trajectory...")
+            smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=20)
+            
+            # Execute trajectory
+            print("\nExecuting trajectory...")
+            # 调整步数和延迟基于速度因子
+            steps = int(10 * movement_speed_factor)  # 默认5步，乘以速度因子
+            delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
+            self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
+            
+            print("\nPath execution completed")
         
         # Release object
         print("\nReleasing object...")

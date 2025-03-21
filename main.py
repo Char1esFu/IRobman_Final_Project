@@ -77,6 +77,11 @@ if __name__ == "__main__":
                         help='Select path planning type: joint (joint space) or cartesian (Cartesian space)')
     parser.add_argument('--speed-factor', type=float, default=1.0,
                         help='Movement speed factor for trajectory execution (default=1.0, higher=slower)')
+    # 新增动态重规划相关参数
+    parser.add_argument('--enable-replan', action='store_true',
+                        help='Enable dynamic replanning for moving obstacles')
+    parser.add_argument('--replan-steps', type=int, default=10,
+                        help='Number of steps to execute before replanning (default=10)')
     
     args = parser.parse_args()
     
@@ -151,7 +156,9 @@ if __name__ == "__main__":
             grasp_executor, 
             planning_type=args.planning_type,
             visualize=True,
-            movement_speed_factor=args.speed_factor
+            movement_speed_factor=args.speed_factor,
+            enable_replan=args.enable_replan,       # 添加动态重规划参数
+            replan_steps=args.replan_steps          # 添加重规划步数参数
         )
 
     input("\nPress Enter to close the simulation...")
