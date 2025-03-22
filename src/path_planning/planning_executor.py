@@ -5,6 +5,7 @@ from typing import Optional, Tuple, List, Any, Dict
 
 from src.path_planning.rrt_star import RRTStarPlanner
 from src.path_planning.rrt_star_cartesian import RRTStarCartesianPlanner
+from src.path_planning.potential_field_planner import PotentialFieldPlanner  
 from src.obstacle_tracker import ObstacleTracker
 from src.ik_solver import DifferentialIKSolver
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
@@ -352,9 +353,100 @@ class PlanningExecutor:
             print("Gripper opened, object placed at tray position")
 
         elif(method == "Potential_Plan"):
+            movement_speed_factor=1.0
+            replan_steps=2
+            # ----------------- 1) 获取目标信息 -----------------
+            goal_pos = np.array([0.45593274 ,0.55745936, 2.14598578])
+            # 可视化目标位置（如需要）
+            if visualize:
+                self._visualize_goal_position(goal_pos)
+            
+        
+            goal_joint_pos = [0.9, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
+            
+            # ----------------- 2) 初始化势场规划器 -----------------
 
-            #>> TO DO<<#
-    
+            planner = PotentialFieldPlanner(
+                robot_id=self.robot.id,
+                joint_indices=self.robot.arm_idx,
+                lower_limits=self.robot.lower_limits,
+                upper_limits=self.robot.upper_limits,
+                ee_link_index=self.robot.ee_idx,
+                obstacle_tracker=self.obstacle_tracker,
+                max_iterations=300,       # 每次规划的势场迭代上限
+                step_size=0.01,          # 势场下降步长
+                d0=0.2,                  # 排斥势生效距离
+                K_att=1.0,               # 吸引势增益
+                K_rep=1.0,               # 排斥势增益
+                goal_threshold=0.05,     # 势场中判断“已到目标”的阈值(基于末端距离)
+                collision_check_step=0.05
+            )
+            
+            # ----------------- 3) 动态重规划主循环 -----------------
+            print("\n开始执行基于 Potential Field 的动态重规划...")
+            steps = max(1, int(10 * movement_speed_factor))
+            delay = (1 / 240.0) * movement_speed_factor
+            
+            current_joint_pos = self.robot.get_joint_positions()
+            goal_reached = False
+
+            while not goal_reached:
+                # (a) 获取当前环境的图像并更新障碍物
+                rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+                detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = self.obstacle_tracker.update(detections)
+
+                # (b) 重新规划路径
+                print("\n重新规划路径...")
+
+                # “关节空间”直接从 current_joint_pos -> goal_joint_pos
+                path, cost = planner.plan(current_joint_pos, goal_joint_pos)
+
+                if not path:
+                    print("无法找到有效势场路径，稍后重试...")
+                    time.sleep(0.5)
+                    continue
+                
+                print(f"找到新的势场路径! 路径长度: {len(path)}, 末端到目标的代价(距离): {cost:.4f}")
+
+                # (c) 可选地可视化规划结果
+                if visualize and planner:
+                    # 你可以自行实现 _visualize_path_for_potential_field，或重复利用之前 RRT* 的可视化
+                    # 这里简单示例：
+                    self._visualize_path(planner, path)
+                
+                # (d) 对离散的 path 做一些平滑插值（减少抖动）
+                smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=5)
+
+                # 我们只执行轨迹的一部分，然后再次重规划
+                # 这样可以在环境变化时快速做出反应
+                subpath = smooth_path[:min(replan_steps, len(smooth_path))]
+
+                # (e) 执行 subpath
+                joint_indices = self.robot.arm_idx
+                for joint_pos in subpath:
+                    # 设置机器人关节位置
+                    for i, idx in enumerate(joint_indices):
+                        p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, joint_pos[i])
+                    
+                    # 执行若干仿真步骤
+                    for _ in range(steps):
+                        self.sim.step()
+                        time.sleep(delay)
+                    
+                    # 更新当前关节位置
+                    current_joint_pos = self.robot.get_joint_positions()
+
+                # (f) 检查是否到达目标
+                
+                dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
+                goal_reached = dist_to_goal < 0.05  # 或与 planner.goal_threshold 一致
+
+                if goal_reached:
+                    print("\n目标位置到达!")
+            
+            print("\n基于 Potential Field 的轨迹执行完成。")
+
             start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
