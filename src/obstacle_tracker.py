@@ -243,3 +243,28 @@ class ObstacleTracker:
             List of obstacle state dictionaries
         """
         return [self.get_obstacle_state(i) for i in range(self.n_obstacles)]
+        
+    def is_away(self):
+        """检查球体是否远离托盘位置
+        
+        判断条件:
+        - 第一个球(ball1)的y坐标小于0.03
+        - 第二个球(ball2)的x坐标小于0.03
+        
+        Returns:
+            bool: 如果两个条件都满足则返回True，否则返回False
+        """
+        # 确保我们有足够的球体
+        if self.n_obstacles < 2:
+            return False
+            
+        # 获取球体位置
+        ball1_pos = self.latest_positions[0]
+        ball2_pos = self.latest_positions[1]
+        
+        # 检查条件
+        ball1_away = ball1_pos[1] < 0.03  # ball1的y坐标小于0.03
+        ball2_away = ball2_pos[0] < 0.03  # ball2的x坐标小于0.03
+        
+        # 两个条件都满足时返回True
+        return ball1_away and ball2_away

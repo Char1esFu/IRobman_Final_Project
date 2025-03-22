@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbPottedMeatCan",
+    parser.add_argument('--object', type=str, default="YcbGelatinBox",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     collector = PointCloudCollector(config, sim)
 
     # 设置最大尝试次数和计数器
-    max_attempts = 2
+    max_attempts = 3
     attempt_count = 0
 
     while not grasp_success and attempt_count < max_attempts:
@@ -131,10 +131,22 @@ if __name__ == "__main__":
             bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
             
         # Step 3: Execute grasp (unless --no-grasp flag is set)
-        grasp_executor = GraspExecution(sim)
+        grasp_executor = GraspExecution(sim, config)
         grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
         
+            # 清理边界框可视化
+        if bbox is not None:
+            print("清理物体边界框可视化...")
+            bbox.clear_visualization()
+            
+        # 清理所有用户调试线条和文本（包括坐标轴和标签）
+        # 这将移除所有的Pose 1和Pose 2坐标轴以及其他可视化元素
+        line_ids = list(range(100))  # 一个足够大的范围来覆盖所有可能的调试线条ID
+        for line_id in line_ids:
+            p.removeUserDebugItem(line_id)
+
+        print("已清理所有可视化元素")
         if not grasp_success and attempt_count < max_attempts:
             print(f"将在3秒后重试...")
             time.sleep(3)  # 给一些时间让物理引擎稳定
@@ -148,18 +160,7 @@ if __name__ == "__main__":
         
     print("\n抓取成功！准备执行路径规划...")
     
-    # 清理边界框可视化
-    if bbox is not None:
-        print("清理物体边界框可视化...")
-        bbox.clear_visualization()
-        
-    # 清理所有用户调试线条和文本（包括坐标轴和标签）
-    # 这将移除所有的Pose 1和Pose 2坐标轴以及其他可视化元素
-    line_ids = list(range(100))  # 一个足够大的范围来覆盖所有可能的调试线条ID
-    for line_id in line_ids:
-        p.removeUserDebugItem(line_id)
-    
-    print("已清理所有可视化元素")
+
 
     # Step 4: Execute path planning (if grasp succeeded and planning not disabled)
     if not args.no_planning and grasp_executor is not None:
@@ -171,7 +172,8 @@ if __name__ == "__main__":
             visualize=True,
             movement_speed_factor=args.speed_factor,
             enable_replan=args.enable_replan,       # 添加动态重规划参数
-            replan_steps=args.replan_steps          # 添加重规划步数参数
+            replan_steps=args.replan_steps,          # 添加重规划步数参数
+            method="Hard_Code"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code"
         )
 
     input("\nPress Enter to close the simulation...")

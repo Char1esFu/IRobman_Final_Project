@@ -1,11 +1,14 @@
 from src.grasping.grasp_generation import GraspGeneration
 import numpy as np
 import pybullet as p  # Import pybullet for visualization
+import cv2
+from src.obstacle_tracker import ObstacleTracker
+from typing import Optional, Tuple, List, Any, Dict
 
 class GraspExecution:
     """Robot grasping execution class, responsible for planning and executing complete grasping actions"""
     
-    def __init__(self, sim):
+    def __init__(self, sim, config: Dict[str, Any]):
         """
         Initialize grasping executor
         
@@ -17,7 +20,8 @@ class GraspExecution:
         self.ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
         from src.path_planning.simple_planning import SimpleTrajectoryPlanner
         self.trajectory_planner = SimpleTrajectoryPlanner
-    
+        self.config = config
+
     def compute_grasp_poses(self, best_grasp):
         """
         Calculate pre-grasp and final grasp poses based on the best grasp
@@ -66,7 +70,7 @@ class GraspExecution:
         
         return pose1_pos, pose1_orn, pose2_pos, pose2_orn
     
-    def execute_grasp(self, best_grasp, grasp_poses=None):
+    def execute_grasp(self, pose1_pos, pose1_orn, pose2_pos, pose2_orn):
         """
         Execute complete grasping process
         
@@ -77,11 +81,6 @@ class GraspExecution:
         Returns:
             bool: True if grasping is successful, False otherwise
         """
-        # 获取抓取姿态
-        if grasp_poses is None:
-            grasp_poses = self.compute_grasp_poses(best_grasp)
-        
-        pose1_pos, pose1_orn, pose2_pos, pose2_orn = grasp_poses
         
         # 获取当前机器人关节角度
         start_joints = self.sim.robot.get_joint_positions()
@@ -123,11 +122,9 @@ class GraspExecution:
         
         # Close gripper to grasp object
         self.close_gripper()
+
         
-        # Lift object
-        success = self.lift_object()
-        
-        return success
+    
     
     def _execute_trajectory(self, trajectory, speed=1/240.0):
         """Execute trajectory"""
@@ -309,12 +306,17 @@ class GraspExecution:
         
         # Execute grasping (pass calculated pose)
         print("\nStarting to execute grasping...")
-        success = self.execute_grasp(best_grasp, grasp_poses)
-        
-        if success:
+        self.execute_grasp(pose1_pos, pose1_orn, pose2_pos, pose2_orn)
+
+        lift_success = self.lift_object()
+
+        is_success = self.is_grasped(mask_id=5, distance_threshold=0.15)
+
+        if is_success and lift_success:
             print("\nGrasping successful!")
         else:
             print("\nGrasping failed...")
+            return False, False
         
         # Add visualization code after finding the best grasp
         if best_grasp is not None and visualize:
@@ -333,4 +335,76 @@ class GraspExecution:
             # Call visualization function
             visualize_3d_objs(vis_meshes)
         
-        return success, self if success else None
+        return True, True
+
+    def is_grasped(self, mask_id=5, distance_threshold=0.15):
+        """
+        判断物体是否已被成功抓取
+        
+        通过计算物体可见部分的中心与末端执行器之间的距离来判断
+        
+        参数:
+            mask_id: 被抓取物体的掩码ID，默认为5
+            distance_threshold: 距离阈值，小于此值视为抓取成功，默认为0.1
+            
+        返回:
+            bool: 如果物体被成功抓取返回True，否则返回False
+        """
+        # 获取末端执行器相机图像
+        rgb, depth, seg = self.sim.get_static_renders()
+        
+        # 创建ObstacleTracker实例
+        tracker = ObstacleTracker(n_obstacles=2, exp_settings= self.config)
+        
+        # 检查物体ID是否在分割掩码中
+        if mask_id not in np.unique(seg):
+            print(f"警告: 物体ID {mask_id} 不在当前分割掩码中")
+            print(f"分割掩码中的可用ID: {np.unique(seg)}")
+            return False
+        
+        # 创建物体掩码
+        mask = (seg == mask_id).astype(np.uint8)
+        
+        # 找到轮廓
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            print(f"警告: 物体ID {mask_id} 没有找到有效轮廓")
+            return False
+        
+        # 使用最大的轮廓
+        contour = max(contours, key=cv2.contourArea)
+
+        # 计算轮廓中心
+        M = cv2.moments(contour)
+        if M['m00'] == 0:
+            print(f"警告: 物体ID {mask_id} 的轮廓面积为零")
+            return False
+        
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        
+        # 检查深度
+        depth_buffer = depth[cy, cx]
+        metric_depth = tracker.convert_depth_to_meters(depth_buffer)
+        
+        # 使用ObstacleTracker的方法将像素坐标转换为世界坐标
+        # 不考虑半径偏移，因为我们只关心表面点
+        object_pos = tracker.pixel_to_world(cx, cy, metric_depth)
+        
+        # 获取末端执行器位置
+        ee_pos, _ = self.sim.robot.get_ee_pose()
+        
+        # 计算末端执行器与物体中心的距离
+        distance = np.linalg.norm(np.array(ee_pos) - object_pos)
+        
+        # 判断距离是否小于阈值
+        is_success = distance < distance_threshold
+        
+        # 输出调试信息
+        print(f"物体中心世界坐标: {object_pos}")
+        print(f"末端执行器坐标: {ee_pos}")
+        print(f"距离: {distance}, 阈值: {distance_threshold}")
+        print(f"抓取{'成功' if is_success else '失败'}")
+        
+        return is_success 
