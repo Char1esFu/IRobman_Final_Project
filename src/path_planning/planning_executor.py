@@ -485,7 +485,7 @@ class PlanningExecutor:
                 (min_lim[1] + max_lim[1])/2,
                 max_lim[2] + 0.6
             ])
-            goal_orn = p.getQuaternionFromEuler([0, np.pi, 0])  # 垂直向下
+            goal_orn = p.getQuaternionFromEuler([0, np.pi/2, np.pi/4])  # 垂直向下
             
             # 可视化目标位置
             if visualize:
