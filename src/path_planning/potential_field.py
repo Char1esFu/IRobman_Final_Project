@@ -174,18 +174,7 @@ class PotentialFieldPlanner:
         """
         return np.linalg.norm(np.array(q1) - np.array(q2))
     
-    def _attractive_potential(self, q: np.ndarray, q_goal: np.ndarray) -> float:
-        """计算吸引势能
-        
-        Args:
-            q: 当前关节配置
-            q_goal: 目标关节配置
-            
-        Returns:
-            吸引势能值
-        """
-        dist = np.linalg.norm(q - q_goal)
-        return 0.5 * self.K_att * dist**2
+
     
     def _attractive_gradient(self, q: np.ndarray, q_goal: np.ndarray) -> np.ndarray:
         """计算吸引势能梯度
@@ -304,7 +293,7 @@ class PotentialFieldPlanner:
         next_point = np.array(self.reference_path[min_idx + 1])
         return self.reference_path_weight * self.K_att * (q - next_point)
     
-    def _total_gradient(self, q: np.ndarray, q_goal: np.ndarray) -> np.ndarray:
+    def _total_gradient(self, q: np.ndarray, q_goal: np.ndarray ,reference) -> np.ndarray:
         """计算总梯度（吸引 + 排斥 + 参考路径）
         
         Args:
@@ -320,11 +309,13 @@ class PotentialFieldPlanner:
         # 排斥梯度（远离障碍物）
         rep_grad = -self._repulsive_gradient(q)
         
-        # 参考路径梯度（引导跟随RRT*路径）
-        ref_grad = -self._reference_path_gradient(q)
-        
-        # 总梯度 = 吸引 + 排斥 + 参考路径
-        total_grad = att_grad + rep_grad + ref_grad
+        if reference :
+            # 参考路径梯度（引导跟随RRT*路径）
+            ref_grad = -self._reference_path_gradient(q)
+            # 总梯度 = 吸引 + 排斥 + 参考路径
+            total_grad = att_grad + rep_grad + ref_grad
+        else:
+            total_grad = att_grad + rep_grad
         
         # 归一化梯度
         norm = np.linalg.norm(total_grad)
@@ -333,94 +324,8 @@ class PotentialFieldPlanner:
         
         return total_grad
     
-    def plan(self, start_config: List[float], goal_config: List[float], reference_path: List[List[float]] = None) -> Tuple[List[List[float]], float]:
-        """使用势场法规划从起点到终点的路径
-        
-        Args:
-            start_config: 起始关节配置
-            goal_config: 目标关节配置
-            reference_path: 可选的参考路径（如RRT*生成的全局路径）
-            
-        Returns:
-            元组 (路径点列表, 路径代价)
-        """
-        print("使用势场法进行局部避障规划...")
-        
-        # 设置参考路径（如果提供）
-        self.reference_path = reference_path
-        
-        # 初始化路径
-        path = [start_config]
-        q_current = np.array(start_config)
-        q_goal = np.array(goal_config)
-        
-        # 清除可视化
-        self.clear_visualization()
-        
-        # 修改：限制最大迭代次数，只生成短期局部路径
-        # 对于动态环境，长期规划意义不大，因为障碍物可能移动
-        local_max_iter = min(20, self.max_iterations)  # 只规划短期局部路径
-        
-        # 势场法主循环
-        for i in range(local_max_iter):
-            # 检查是否到达目标
-            dist_to_goal = np.linalg.norm(q_current - q_goal)
-            if dist_to_goal < self.goal_threshold:
-                print(f"目标达成！迭代次数: {i+1}")
-                path.append(goal_config)
-                break
-            
-            # 计算梯度
-            gradient = self._total_gradient(q_current, q_goal)
-            
-            # 更新位置
-            q_new = q_current + self.step_size * gradient
-            
-            # 强制保持在关节限制内
-            for j in range(self.dimension):
-                q_new[j] = max(self.lower_limits[j], min(self.upper_limits[j], q_new[j]))
-            
-            # 检查是否无碰撞
-            if not self._is_collision_free(q_new):
-                # 如果有碰撞，尝试只使用排斥力
-                rep_grad = -self._repulsive_gradient(q_current)
-                norm_rep = np.linalg.norm(rep_grad)
-                if norm_rep > 1e-6:
-                    rep_grad = rep_grad / norm_rep
-                    q_new = q_current + self.step_size * rep_grad
-                    
-                    # 强制保持在关节限制内
-                    for j in range(self.dimension):
-                        q_new[j] = max(self.lower_limits[j], min(self.upper_limits[j], q_new[j]))
-                    
-                    if not self._is_collision_free(q_new):
-                        # 如果仍然有碰撞，停止当前迭代
-                        print(f"警告: 第{i}次迭代无法找到无碰撞的下一步")
-                        break  # 修改：如果找不到有效步骤，直接结束规划
-            
-            # 更新当前位置并添加到路径
-            q_current = q_new
-            path.append(q_current.tolist())
-            
-            # 添加可视化 - 仅显示实际将要执行的路径部分
-            if i > 0:
-                start_ee, _ = self._get_current_ee_pose(path[-2])
-                end_ee, _ = self._get_current_ee_pose(path[-1])
-                
-                debug_id = p.addUserDebugLine(
-                    start_ee, end_ee, [1, 0, 1], 2, 0  # 紫色线表示势场路径
-                )
-                
-                self.debug_lines.append(debug_id)
-        
-        # 计算总路径代价（末端执行器与目标的距离）
-        final_ee_pos, _ = self._get_current_ee_pose(path[-1])
-        goal_ee_pos, _ = self._get_current_ee_pose(goal_config)
-        path_cost = np.linalg.norm(final_ee_pos - goal_ee_pos)
-        
-        return path, path_cost
-
-    def plan_next_step(self, current_config: List[float], goal_config: List[float]) -> Tuple[List[float], float]:
+    
+    def plan_next_step(self, current_config: List[float], goal_config: List[float], reference: bool) -> Tuple[List[float], float]:
         """计算从当前位置出发的下一个最佳步骤
         
         这个方法更适合动态环境，只关注当前的局部最优方向
@@ -436,7 +341,7 @@ class PotentialFieldPlanner:
         q_goal = np.array(goal_config)
         
         # 计算梯度方向
-        gradient = self._total_gradient(q_current, q_goal)
+        gradient = self._total_gradient(q_current, q_goal,reference)
         
         # 根据梯度更新位置
         q_new = q_current + self.step_size * gradient
@@ -484,33 +389,6 @@ class PotentialFieldPlanner:
             p.removeUserDebugItem(debug_id)
         self.debug_lines = []
     
-    def generate_smooth_trajectory(self, path: List[List[float]], smoothing_steps: int = 10) -> List[List[float]]:
-        """从路径生成平滑轨迹
-        
-        Args:
-            path: 关节配置路径列表
-            smoothing_steps: 每对配置之间的步数
-            
-        Returns:
-            平滑轨迹的关节配置列表
-        """
-        if not path or len(path) < 2:
-            return path
-            
-        # 在路径点之间插值
-        smooth_trajectory = []
-        
-        for i in range(len(path) - 1):
-            start = path[i]
-            end = path[i + 1]
-            
-            for step in range(smoothing_steps + 1):
-                t = step / smoothing_steps
-                interpolated = [start[j] + t * (end[j] - start[j]) for j in range(len(start))]
-                smooth_trajectory.append(interpolated)
-                
-        return smooth_trajectory
-    
     def set_reference_path(self, reference_path: List[List[float]]) -> None:
         """设置参考路径（用于RRT*和势场法结合）
         
@@ -520,19 +398,4 @@ class PotentialFieldPlanner:
         self.reference_path = reference_path
         print(f"设置参考路径，包含 {len(reference_path)} 个点")
     
-    def replan_with_reference(self, current_config: List[float], goal_config: List[float]) -> Tuple[List[List[float]], float]:
-        """使用已设置的参考路径重新规划，用于实时避障
-        
-        Args:
-            current_config: 当前关节配置
-            goal_config: 目标关节配置
-            
-        Returns:
-            元组 (路径点列表, 路径代价)
-        """
-        if self.reference_path is None:
-            print("警告: 没有设置参考路径，使用普通势场法规划")
-            return self.plan(current_config, goal_config)
-        
-        print("使用参考路径和势场法进行重规划...")
-        return self.plan(current_config, goal_config, self.reference_path) 
+    
