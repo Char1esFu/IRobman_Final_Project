@@ -293,17 +293,13 @@ class PlanningExecutor:
                 elif planning_type == 'joint':
                     # Use joint space planning
                     planner = RRTStarPlanner(
-                        robot_id=self.robot.id,
-                        joint_indices=self.robot.arm_idx,
-                        lower_limits=self.robot.lower_limits,
-                        upper_limits=self.robot.upper_limits,
-                        ee_link_index=self.robot.ee_idx,
+                        robot=self.robot,
                         obstacle_tracker=self.obstacle_tracker,
-                        max_iterations=1000,
-                        step_size=0.2,
+                        max_iterations=2000,
+                        step_size=0.1,
                         goal_sample_rate=0.05,
-                        search_radius=0.5,
-                        goal_threshold=0.1
+                        search_radius=0.2,
+                        goal_threshold=0.05
                     )
                     goal_joint_pos = self.ik_solver.solve(
                         goal_pos, goal_orn, start_joint_pos, max_iters=50, tolerance=0.001
@@ -327,7 +323,7 @@ class PlanningExecutor:
                 # Execute trajectory
                 print("\nExecuting trajectory...")
                 # 调整步数和延迟基于速度因子
-                steps = int(10 * movement_speed_factor)  # 默认5步，乘以速度因子
+                steps = int(1 * movement_speed_factor)  # 默认5步，乘以速度因子
                 delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
                 self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
                 
