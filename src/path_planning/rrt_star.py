@@ -79,29 +79,13 @@ class RRTStarPlanner:
             
         return ee_pos, ee_orn
     
-    def _is_collision_free(self, start_joints: List[float], end_joints: List[float]) -> bool:
-        """Check if path between two joint configurations is collision-free.
+    def _is_collision_free(self, joints: List[float]) -> bool:
+        """Check if a joint configuration is collision-free.
         
         Args:
-            start_joints: Starting joint configuration
-            end_joints: Ending joint configuration
-            
-        Returns:
-            True if path is collision-free, False otherwise
+            joints: Joint configuration
         """
-        # Get distance in joint space
-        dist = np.linalg.norm(end_joints - start_joints)
-        
-        # Number of steps for collision checking
-        n_steps = max(2, int(dist / self.collision_check_step))
-        
-        # Check each step along the path
-        for i in range(n_steps + 1):
-            t = i / n_steps
-            # Linear interpolation between start and end
-            joint_pos = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
-                
-        return self._is_ee_height_valid(joint_pos) and not self._is_state_in_collision(joint_pos)
+        return self._is_ee_height_valid(joints) and not self._is_state_in_collision(joints)
     
     def _is_state_in_collision(self, joint_pos: List[float]) -> bool:
         """Check if a joint state is in collision with obstacles.
@@ -179,7 +163,7 @@ class RRTStarPlanner:
             config = [random.uniform(low, high) for low, high in zip(self.robot.lower_limits, self.robot.upper_limits)]
             
             # Check if this configuration keeps the end effector above the table
-            if self._is_ee_height_valid(config):
+            if self._is_collision_free(config):
                 return config
                 
         # If we couldn't find a valid configuration after max_attempts, 
@@ -227,7 +211,7 @@ class RRTStarPlanner:
         
         if dist < self.step_size:
             # If directly reaching to_config, check height validity
-            if self._is_ee_height_valid(to_config):
+            if self._is_collision_free(to_config):
                 return to_config
             else:
                 return from_config
@@ -236,7 +220,7 @@ class RRTStarPlanner:
             new_config = from_config + self.step_size * dir_vec
             
             # Check height validity of new_config
-            if self._is_ee_height_valid(new_config):
+            if self._is_collision_free(new_config):
                 return new_config
             else:
                 return from_config
@@ -262,7 +246,7 @@ class RRTStarPlanner:
             cost_to_new = np.linalg.norm(self.nodes[idx] - new_node)
             
             # Check if path is collision-free
-            if self._is_collision_free(self.nodes[idx], new_node):
+            if self._is_collision_free(new_node):
                 # Total cost
                 costs.append((idx, cost_to_parent + cost_to_new))
             else:
@@ -295,7 +279,7 @@ class RRTStarPlanner:
             
             if cost_through_new < self.costs[idx]:
                 # Check if path is collision-free
-                if self._is_collision_free(new_node, self.nodes[idx]):
+                if self._is_collision_free(new_node):
                     # Update parent and cost
                     self.parents[idx] = new_node_idx
                     self.costs[idx] = cost_through_new
@@ -427,32 +411,23 @@ class RRTStarPlanner:
                 print(f"Goal reached after {i+1} iterations!")
                 
                 # Add goal node if not already part of the tree
-                if np.linalg.norm(np.array(new_config) - np.array(goal_config)) > 1e-6:
-                    # Check height validity for goal
-                    if not self._is_ee_height_valid(goal_config):
-                        print("Warning: Goal configuration has invalid height, "
-                              "using closest valid configuration")
-                        goal_idx = new_node_idx
-                    # Check if direct path to goal is collision-free
-                    elif self._is_collision_free(new_config, goal_config):
-                        # Add goal node
-                        self.nodes.append(goal_config)
-                        cost_to_goal = cost_to_new + np.linalg.norm(np.array(goal_config) - np.array(new_config))
-                        self.costs.append(cost_to_goal)
-                        self.parents.append(new_node_idx)
-                        goal_idx = len(self.nodes) - 1
-                        
-                        # Add visualization
-                        start_ee, _ = self._get_current_ee_pose(new_config)
-                        end_ee, _ = self._get_current_ee_pose(goal_config)
-                        
-                        debug_id = p.addUserDebugLine(
-                            start_ee, end_ee, [0, 1, 0], 2, 0
-                        )
-                        
-                        self.debug_lines.append((new_config, goal_config, debug_id))
-                    else:
-                        goal_idx = new_node_idx
+                if np.linalg.norm(np.array(new_config) - np.array(goal_config)) > 1e-6 and self._is_collision_free(goal_config):
+                    # Add goal node
+                    self.nodes.append(goal_config)
+                    cost_to_goal = cost_to_new + np.linalg.norm(np.array(goal_config) - np.array(new_config))
+                    self.costs.append(cost_to_goal)
+                    self.parents.append(new_node_idx)
+                    goal_idx = len(self.nodes) - 1
+                    
+                    # Add visualization
+                    start_ee, _ = self._get_current_ee_pose(new_config)
+                    end_ee, _ = self._get_current_ee_pose(goal_config)
+                    
+                    debug_id = p.addUserDebugLine(
+                        start_ee, end_ee, [0, 1, 0], 2, 0
+                    )
+                    
+                    self.debug_lines.append((new_config, goal_config, debug_id))
                 else:
                     goal_idx = new_node_idx
                     
