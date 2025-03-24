@@ -73,7 +73,7 @@ class PlanningExecutor:
             current_joint_pos = self.robot.get_joint_positions()
 
             start_joint_pos = self.ik_solver.solve(start_pos, start_orn, current_joint_pos, max_iters=50, tolerance=0.001)
-            
+            start_joint_pos[0] = 0.9
 
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
@@ -106,6 +106,9 @@ class PlanningExecutor:
 
             ball_is_far = False
             while(not ball_is_far):
+                rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+                detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = self.obstacle_tracker.update(detections)
                 ball_is_far = self.obstacle_tracker.is_away()
                 for _ in range(1):
                     self.sim.step()
@@ -354,6 +357,28 @@ class PlanningExecutor:
 
         elif(method == "Potential_Plan"):
             movement_speed_factor=1.0
+            # start_pos = np.array([
+            #     0.1,
+            #     0.1,
+            #     2.5
+            # ])
+            # start_orn = p.getQuaternionFromEuler([0, 0, 0])  # Vertically downward
+
+            # # if visualize:
+            # #     self._visualize_goal_position(start_pos)
+
+            # current_joint_pos = self.robot.get_joint_positions()
+
+            # start_joint_pos = self.ik_solver.solve(start_pos, start_orn, current_joint_pos, max_iters=50, tolerance=0.001)
+            # start_joint_pos[0] = 0.9
+
+            # Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
+            # for joint_target in Path_start:
+            #         self.sim.robot.position_control(joint_target)
+            #         for _ in range(10):
+            #             self.sim.step()
+            #             time.sleep(1/240.)
+            # current_joint_pos = self.robot.get_joint_positions()
             # ----------------- 1) 获取目标信息 -----------------
             goal_pos = np.array([0.45593274 ,0.55745936, 2.14598578])
             # 可视化目标位置（如需要）
@@ -431,6 +456,16 @@ class PlanningExecutor:
             
             print("\n基于 Potential Field 的轨迹执行完成。")
 
+            ball_is_far = False
+            while(not ball_is_far):
+                rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+                detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = self.obstacle_tracker.update(detections)
+                ball_is_far = self.obstacle_tracker.is_away()
+                for _ in range(1):
+                    self.sim.step()
+                    time.sleep(1/240.)
+
             start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
@@ -457,7 +492,7 @@ class PlanningExecutor:
                 0.1,
                 2.5
             ])
-            start_orn = p.getQuaternionFromEuler([0, 0, 0])  # Vertically downward
+            start_orn = p.getQuaternionFromEuler([0, np.pi, 0])  # Vertically downward
 
             # if visualize:
             #     self._visualize_goal_position(start_pos)
@@ -465,7 +500,7 @@ class PlanningExecutor:
             current_joint_pos = self.robot.get_joint_positions()
 
             start_joint_pos = self.ik_solver.solve(start_pos, start_orn, current_joint_pos, max_iters=50, tolerance=0.001)
-            
+            start_joint_pos[0] = 0.9
 
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
@@ -598,7 +633,17 @@ class PlanningExecutor:
                     print("\n目标位置到达!")
             
             print("\nRRT*-PF动态避障轨迹执行完成")
-            
+
+            ball_is_far = False
+            while(not ball_is_far):
+                rgb_static, depth_static, seg_static = self.sim.get_static_renders()
+                detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+                tracked_positions = self.obstacle_tracker.update(detections)
+                ball_is_far = self.obstacle_tracker.is_away()
+                for _ in range(1):
+                    self.sim.step()
+                    time.sleep(1/240.)
+
             start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
