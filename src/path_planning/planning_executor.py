@@ -520,11 +520,7 @@ class PlanningExecutor:
             
             # 初始化RRT*规划器
             rrt_planner = RRTStarPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
+                robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
                 max_iterations=1000,  # 全局路径规划可以使用更多迭代次数
                 step_size=0.2,

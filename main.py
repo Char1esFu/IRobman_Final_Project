@@ -173,7 +173,7 @@ if __name__ == "__main__":
             movement_speed_factor=args.speed_factor,
             enable_replan=args.enable_replan,       # 添加动态重规划参数
             replan_steps=args.replan_steps,          # 添加重规划步数参数
-            method="RRT*_Plan"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
+            method="RRT*_PF_Plan"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
         )
 
     input("\nPress Enter to close the simulation...")
