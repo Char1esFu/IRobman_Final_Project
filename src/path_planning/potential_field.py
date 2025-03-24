@@ -333,6 +333,7 @@ class PotentialFieldPlanner:
         Args:
             current_config: 当前关节配置
             goal_config: 目标关节配置
+            reference: 是否有参考轨迹
             
         Returns:
             元组 (下一步关节配置, 到目标的距离)
