@@ -172,17 +172,13 @@ class PlanningExecutor:
                     )
                 else:  # joint space planning
                     planner = RRTStarPlanner(
-                        robot_id=self.robot.id,
-                        joint_indices=self.robot.arm_idx,
-                        lower_limits=self.robot.lower_limits,
-                        upper_limits=self.robot.upper_limits,
-                        ee_link_index=self.robot.ee_idx,
+                        robot=self.robot,
                         obstacle_tracker=self.obstacle_tracker,
-                        max_iterations=500,  # 为重规划减少迭代次数以加快速度
-                        step_size=0.2,
+                        max_iterations=2000,
+                        step_size=0.1,
                         goal_sample_rate=0.05,
-                        search_radius=0.5,
-                        goal_threshold=0.1
+                        search_radius= 0.5,
+                        goal_threshold=0.05
                     )
                 
                 # 主循环：执行路径、监测障碍物和重规划
@@ -298,7 +294,7 @@ class PlanningExecutor:
                         max_iterations=2000,
                         step_size=0.1,
                         goal_sample_rate=0.05,
-                        search_radius=0.2,
+                        search_radius= 0.5,
                         goal_threshold=0.05
                     )
                     goal_joint_pos = self.ik_solver.solve(
@@ -323,7 +319,7 @@ class PlanningExecutor:
                 # Execute trajectory
                 print("\nExecuting trajectory...")
                 # 调整步数和延迟基于速度因子
-                steps = int(1 * movement_speed_factor)  # 默认5步，乘以速度因子
+                steps = int(10 * movement_speed_factor)  # 默认5步，乘以速度因子
                 delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
                 self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
                 
@@ -522,11 +518,11 @@ class PlanningExecutor:
             rrt_planner = RRTStarPlanner(
                 robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
-                max_iterations=1000,  # 全局路径规划可以使用更多迭代次数
-                step_size=0.2,
+                max_iterations=2000,
+                step_size=0.1,
                 goal_sample_rate=0.05,
-                search_radius=0.5,
-                goal_threshold=0.01
+                search_radius= 0.5,
+                goal_threshold=0.05
             )
             
             # 使用静态相机获取障碍物位置
@@ -541,7 +537,8 @@ class PlanningExecutor:
             
             # 使用RRT*规划全局路径
             global_path, global_cost = rrt_planner.plan(start_joint_pos, goal_joint_pos)
-            
+            # 生成平滑轨迹
+            global_path = rrt_planner.generate_smooth_trajectory(global_path, smoothing_steps=5) 
             if not global_path:
                 print("无法生成全局RRT*路径，无法继续")
                 return False

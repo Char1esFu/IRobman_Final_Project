@@ -79,14 +79,66 @@ class RRTStarPlanner:
             
         return ee_pos, ee_orn
     
-    def _is_collision_free(self, joints: List[float]) -> bool:
-        """Check if a joint configuration is collision-free.
+    def clear_visualization(self) -> None:
+        """Clear visualization of tree."""
+        for _, _, debug_id in self.debug_lines:
+            p.removeUserDebugItem(debug_id)
+        self.debug_lines = []
+        
+    def generate_smooth_trajectory(self, path: List[List[float]], smoothing_steps: int = 10) -> List[List[float]]:
+        """Generate smooth trajectory from path.
         
         Args:
-            joints: Joint configuration
+            path: Path as list of joint configurations
+            smoothing_steps: Number of steps between each pair of configurations
+            
+        Returns:
+            Smooth trajectory as list of joint configurations
         """
-        return self._is_ee_height_valid(joints) and not self._is_state_in_collision(joints)
+        if not path or len(path) < 2:
+            return path
+            
+        # Interpolate between waypoints
+        smooth_trajectory = []
+        
+        for i in range(len(path) - 1):
+            start = path[i]
+            end = path[i + 1]
+            
+            for step in range(smoothing_steps + 1):
+                t = step / smoothing_steps
+                interpolated = [start[j] + t * (end[j] - start[j]) for j in range(len(start))]
+                smooth_trajectory.append(interpolated)
+                
+        return smooth_trajectory
     
+    def _find_nearest(self, point: List[float]) -> int:
+        """Find nearest node to point.
+        
+        Args:
+            point: Query point
+            
+        Returns:
+            Index of nearest node
+        """
+        dists = [np.linalg.norm(point - node) for node in self.nodes]
+        return dists.index(min(dists))
+    
+    def _find_nearby(self, point: List[float]) -> List[int]:
+            """Find nearby nodes within search radius.
+            
+            Args:
+                point: Query point
+                
+            Returns:
+                List of indices of nearby nodes
+            """
+            # Use KDTree for efficient nearest neighbor search
+            kd_tree = KDTree(self.nodes)
+            # Query for neighbors within radius
+            indices = kd_tree.query_ball_point(point, self.search_radius)
+            return indices
+
     def _is_state_in_collision(self, joint_pos: List[float]) -> bool:
         """Check if a joint state is in collision with obstacles.
         
@@ -149,28 +201,6 @@ class RRTStarPlanner:
             
         return collision
     
-    def _sample_random_config(self) -> List[float]:
-        """Sample random joint configuration.
-        
-        Returns:
-            Random joint configuration
-        """
-        # Try to sample valid configuration that doesn't put end effector below base height
-        max_attempts = 50  # Maximum number of attempts to find valid configuration
-        
-        for _ in range(max_attempts):
-            # Sample random joint configuration
-            config = [random.uniform(low, high) for low, high in zip(self.robot.lower_limits, self.robot.upper_limits)]
-            
-            # Check if this configuration keeps the end effector above the table
-            if self._is_collision_free(config):
-                return config
-                
-        # If we couldn't find a valid configuration after max_attempts, 
-        # return the last sampled configuration and let collision checking handle it
-        print("Warning: Could not sample configuration with valid end effector height")
-        return [random.uniform(low, high) for low, high in zip(self.robot.lower_limits, self.robot.upper_limits)]
-    
     def _is_ee_height_valid(self, joint_pos: List[float]) -> bool:
         """Check if end effector height is valid (above the table).
         
@@ -196,6 +226,36 @@ class RRTStarPlanner:
         
         # Check if end effector is above the table height
         return ee_pos[2] > table_height
+   
+    def _is_collision_free(self, joints: List[float]) -> bool:
+        """Check if a joint configuration is collision-free.
+        
+        Args:
+            joints: Joint configuration
+        """
+        return self._is_ee_height_valid(joints) and not self._is_state_in_collision(joints)
+    
+    def _sample_random_config(self) -> List[float]:
+        """Sample random joint configuration.
+        
+        Returns:
+            Random joint configuration
+        """
+        # Try to sample valid configuration that doesn't put end effector below base height
+        max_attempts = 50  # Maximum number of attempts to find valid configuration
+        
+        for _ in range(max_attempts):
+            # Sample random joint configuration
+            config = [random.uniform(low, high) for low, high in zip(self.robot.lower_limits, self.robot.upper_limits)]
+            
+            # Check if this configuration keeps the end effector above the table
+            if self._is_collision_free(config):
+                return config
+                
+        # If we couldn't find a valid configuration after max_attempts, 
+        # return the last sampled configuration and let collision checking handle it
+        print("Warning: Could not sample configuration with valid end effector height")
+        return [random.uniform(low, high) for low, high in zip(self.robot.lower_limits, self.robot.upper_limits)]
     
     def _steer(self, from_config: List[float], to_config: List[float]) -> List[float]:
         """Steer from one configuration toward another with step size limit.
@@ -286,34 +346,7 @@ class RRTStarPlanner:
                     
                     # Update visualization
                     self._update_visualization(idx)
-    
-    def _find_nearest(self, point: List[float]) -> int:
-        """Find nearest node to point.
-        
-        Args:
-            point: Query point
-            
-        Returns:
-            Index of nearest node
-        """
-        dists = [np.linalg.norm(point - node) for node in self.nodes]
-        return dists.index(min(dists))
-    
-    def _find_nearby(self, point: List[float]) -> List[int]:
-        """Find nearby nodes within search radius.
-        
-        Args:
-            point: Query point
-            
-        Returns:
-            List of indices of nearby nodes
-        """
-        # Use KDTree for efficient nearest neighbor search
-        kd_tree = KDTree(self.nodes)
-        # Query for neighbors within radius
-        indices = kd_tree.query_ball_point(point, self.search_radius)
-        return indices
-    
+
     def _update_visualization(self, node_idx: int) -> None:
         """Update visualization of tree.
         
@@ -342,6 +375,24 @@ class RRTStarPlanner:
         
         self.debug_lines.append((self.nodes[parent_idx], self.nodes[node_idx], debug_id))
     
+    def _extract_path(self, goal_idx: int) -> List[List[float]]:
+            """Extract path from start to goal.
+            
+            Args:
+                goal_idx: Index of goal node
+                
+            Returns:
+                Path as list of joint configurations
+            """
+            path = []
+            current = goal_idx
+            
+            while current != -1:  # -1 means no parent (start node)
+                path.append(self.nodes[current])
+                current = self.parents[current]
+                
+            return path[::-1]  # Reverse to get path from start to goal
+
     def plan(self, start_config: List[float], goal_config: List[float]) -> Tuple[List[List[float]], float]:
         """Plan a path from start to goal configuration.
         
@@ -417,17 +468,23 @@ class RRTStarPlanner:
                     cost_to_goal = cost_to_new + np.linalg.norm(np.array(goal_config) - np.array(new_config))
                     self.costs.append(cost_to_goal)
                     self.parents.append(new_node_idx)
-                    goal_idx = len(self.nodes) - 1
+                    new_node_idx = len(self.nodes) - 1
                     
                     # Add visualization
-                    start_ee, _ = self._get_current_ee_pose(new_config)
-                    end_ee, _ = self._get_current_ee_pose(goal_config)
+                    start_ee, _ = self._get_current_ee_pose(self.nodes[best_parent_idx])
+                    end_ee, _ = self._get_current_ee_pose(new_config)
                     
                     debug_id = p.addUserDebugLine(
                         start_ee, end_ee, [0, 1, 0], 2, 0
                     )
                     
-                    self.debug_lines.append((new_config, goal_config, debug_id))
+                    self.debug_lines.append((self.nodes[best_parent_idx], new_config, debug_id))
+                    
+                    # Rewire the tree
+                    self._rewire(new_node_idx, nearby_indices)
+                    
+                   
+                    goal_idx = new_node_idx
                 else:
                     goal_idx = new_node_idx
                     
@@ -447,53 +504,3 @@ class RRTStarPlanner:
         
         return path, path_cost
     
-    def _extract_path(self, goal_idx: int) -> List[List[float]]:
-        """Extract path from start to goal.
-        
-        Args:
-            goal_idx: Index of goal node
-            
-        Returns:
-            Path as list of joint configurations
-        """
-        path = []
-        current = goal_idx
-        
-        while current != -1:  # -1 means no parent (start node)
-            path.append(self.nodes[current])
-            current = self.parents[current]
-            
-        return path[::-1]  # Reverse to get path from start to goal
-    
-    def clear_visualization(self) -> None:
-        """Clear visualization of tree."""
-        for _, _, debug_id in self.debug_lines:
-            p.removeUserDebugItem(debug_id)
-        self.debug_lines = []
-        
-    def generate_smooth_trajectory(self, path: List[List[float]], smoothing_steps: int = 10) -> List[List[float]]:
-        """Generate smooth trajectory from path.
-        
-        Args:
-            path: Path as list of joint configurations
-            smoothing_steps: Number of steps between each pair of configurations
-            
-        Returns:
-            Smooth trajectory as list of joint configurations
-        """
-        if not path or len(path) < 2:
-            return path
-            
-        # Interpolate between waypoints
-        smooth_trajectory = []
-        
-        for i in range(len(path) - 1):
-            start = path[i]
-            end = path[i + 1]
-            
-            for step in range(smoothing_steps + 1):
-                t = step / smoothing_steps
-                interpolated = [start[j] + t * (end[j] - start[j]) for j in range(len(start))]
-                smooth_trajectory.append(interpolated)
-                
-        return smooth_trajectory
