@@ -1,8 +1,6 @@
 import numpy as np
 import pybullet as p
 import open3d as o3d
-
-from src.point_cloud.point_cloud import PointCloudCollector
 class BoundingBox:
     """
     Class for calculating and visualizing point cloud bounding boxes
@@ -31,8 +29,6 @@ class BoundingBox:
         self.debug_lines = []      # Line IDs for visualization
         self.config = config
         self.sim = sim
-        
-        self.collector = PointCloudCollector(config, sim)
     
     def visualize_point_clouds(self, collected_data, show_frames=True, show_merged=True):
         """
