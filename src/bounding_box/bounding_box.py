@@ -143,11 +143,11 @@ class BoundingBox:
         xy_centered = points_xy - xy_mean
         cov_xy = np.cov(xy_centered.T)[:2, :2]  # Only take XY plane covariance
         eigenvalues, eigenvectors = np.linalg.eigh(cov_xy)
-        
         # Sort eigenvalues and eigenvectors (descending)
         idx = eigenvalues.argsort()[::-1]
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
+        
         
         # 3. Get principal axis directions, these are the rotation directions in the XY plane
         main_axis_x = np.array([eigenvectors[0, 0], eigenvectors[1, 0], 0])
@@ -163,6 +163,7 @@ class BoundingBox:
         
         # 5. Rotate point cloud to new coordinate system
         points_rotated = np.dot(self.points - xy_mean, self.rotation_matrix)
+
         
         # 6. Calculate bounding box in new coordinate system
         min_point_rotated = np.min(points_rotated, axis=0)
@@ -300,57 +301,7 @@ class BoundingBox:
             p.removeUserDebugItem(line_id)
         
         self.debug_lines = []
-    
-    def get_dimensions(self):
-        """
-        Get the dimensions of the bounding box
-        
-        Returns:
-        dimensions: Bounding box dimensions [length, width, height]
-        """
-        if self.obb_dims is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.obb_dims
-    
-    def get_height(self):
-        """
-        Get object height
-        
-        Returns:
-        height: Object height
-        """
-        if self.height is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.height
-    
-    ######################### Used in Grasp Execution #########################
-    def get_center(self):
-        """
-        Get the center point of the bounding box
-        
-        Returns:
-        center: Center point of the bounding box [x, y, z]
-        """
-        if self.center is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.center
-    
-    def get_rotation_matrix(self):
-        """
-        Get the rotation matrix of the bounding box
-        
-        Returns:
-        rotation_matrix: 3x3 rotation matrix
-        """
-        if self.rotation_matrix is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.rotation_matrix    
-    ######################### Used in Grasp Execution #########################
-    
+
     def compute_point_cloud_bbox(self, point_clouds, visualize_cloud=True):
         """
         Calculate and visualize point cloud bounding box
@@ -395,13 +346,9 @@ class BoundingBox:
         self.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
         
         # Visualize principal axes
-        axis_lines = self.add_axes_visualization(length=0.15)
+        self.add_axes_visualization(length=0.15)
         
         # Print bounding box information
         print(f"\nBounding box information:")
-        print(f"Object height: {self.get_height():.4f} meters")
-        print(f"Bounding box dimensions: {self.get_dimensions()}")
-        center = self.get_center()
-        print(f"Centroid coordinates: ({center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f})")
-        
+
         return self.center, self.rotation_matrix
