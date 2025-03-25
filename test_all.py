@@ -15,7 +15,7 @@ from src.path_planning.rrt_star import RRTStarPlanner
 from src.grasping.grasp_generation import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import grasping_mesh
-from src.point_cloud import object_mesh
+from src.grasping import object_mesh
 from scipy.spatial.transform import Rotation
 
 # Check if PyBullet has NumPy support enabled

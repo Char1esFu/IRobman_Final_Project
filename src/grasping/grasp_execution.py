@@ -210,7 +210,7 @@ class GraspExecution:
         """
         import open3d as o3d
         from src.grasping import grasping_mesh
-        from src.point_cloud.object_mesh import visualize_3d_objs
+        from src.grasping.object_mesh import visualize_3d_objs
         
         print("\nStep 3: Grasping planning and execution...")
         

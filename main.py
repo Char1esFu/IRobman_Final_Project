@@ -13,7 +13,7 @@ from pybullet_object_models import ycb_objects  # type:ignore
 
 from src.simulation import Simulation
 from src.point_cloud.point_cloud import PointCloudCollector
-from src.point_cloud.bounding_box import BoundingBox
+from src.bounding_box.bounding_box import BoundingBox
 from src.path_planning.planning_executor import PlanningExecutor
 from src.grasping.grasp_execution import GraspExecution
 
