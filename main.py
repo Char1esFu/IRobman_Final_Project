@@ -133,7 +133,7 @@ if __name__ == "__main__":
             
         # Step 3: Execute grasp (unless --no-grasp flag is set)
         grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
-        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
+        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(point_clouds, True)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
         
             # 清理边界框可视化
