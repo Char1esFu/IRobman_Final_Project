@@ -379,6 +379,7 @@ class BoundingBox:
         # Merge point clouds
         print("\nMerging point clouds...")
         merged_cloud = self.merge_point_clouds(point_clouds)
+        self.points = np.asarray(merged_cloud.points)
         
         # Visualize merged point cloud
         if visualize_cloud and merged_cloud is not None:
@@ -393,21 +394,20 @@ class BoundingBox:
         
         # Calculate bounding box
         print("\nCalculating bounding box...")
-        bbox = BoundingBox(merged_cloud, self.config, self.sim)
-        bbox.compute_obb()
+        self.compute_obb()
         
         # Visualize bounding box
         print("\nVisualizing bounding box...")
-        bbox.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
+        self.visualize_in_pybullet(color=(0, 1, 1), line_width=3)
         
         # Visualize principal axes
-        axis_lines = bbox.add_axes_visualization(length=0.15)
+        axis_lines = self.add_axes_visualization(length=0.15)
         
         # Print bounding box information
         print(f"\nBounding box information:")
-        print(f"Object height: {bbox.get_height():.4f} meters")
-        print(f"Bounding box dimensions: {bbox.get_dimensions()}")
-        center = bbox.get_center()
+        print(f"Object height: {self.get_height():.4f} meters")
+        print(f"Bounding box dimensions: {self.get_dimensions()}")
+        center = self.get_center()
         print(f"Centroid coordinates: ({center[0]:.4f}, {center[1]:.4f}, {center[2]:.4f})")
         
-        return bbox
+        return self.center, self.rotation_matrix

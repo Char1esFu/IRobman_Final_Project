@@ -127,12 +127,12 @@ if __name__ == "__main__":
                 print(f"\nMaximum z-axis point from the high viewpoint cloud: {data['max_z_point']}")
         
         # Step 2: Compute and visualize bounding box
-        bbox_calculator = BoundingBox(point_clouds, config, sim)
         if point_clouds:
-            bbox = bbox_calculator.compute_point_cloud_bbox(point_clouds, not args.no_vis)
+            bbox_calculator = BoundingBox(point_clouds, config, sim)
+            bbox_center, bbox_rotation_matrix = bbox_calculator.compute_point_cloud_bbox(point_clouds, not args.no_vis)
             
         # Step 3: Execute grasp (unless --no-grasp flag is set)
-        grasp_executor = GraspExecution(sim, config)
+        grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
         grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(bbox, point_clouds, True)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
         
@@ -174,7 +174,7 @@ if __name__ == "__main__":
             movement_speed_factor=args.speed_factor,
             enable_replan=args.enable_replan,       # 添加动态重规划参数
             replan_steps=args.replan_steps,          # 添加重规划步数参数
-            method="RRT*_Plan"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
+            method="Potential_Plan"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
         )
 
     input("\nPress Enter to close the simulation...")

@@ -11,7 +11,7 @@ from typing import Any, Dict
 class GraspExecution:
     """Robot grasping execution class, responsible for planning and executing complete grasping actions"""
     
-    def __init__(self, sim, config: Dict[str, Any]):
+    def __init__(self, sim, config: Dict[str, Any], bbox_center, bbox_rotation_matrix):
         """
         Initialize grasping executor
         
@@ -22,6 +22,8 @@ class GraspExecution:
         self.ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
         self.trajectory_planner = SimpleTrajectoryPlanner
         self.config = config
+        self.bbox_center = bbox_center
+        self.bbox_rotation_matrix = bbox_rotation_matrix
 
     def compute_grasp_poses(self, best_grasp):
         """
@@ -227,8 +229,8 @@ class GraspExecution:
             return False, None
         
         # Get boundary box information
-        center = bbox.get_center()
-        rotation_matrix = bbox.get_rotation_matrix()
+        center = self.bbox_center
+        rotation_matrix = self.bbox_rotation_matrix
         
         # Get rotated boundary box coordinates
         points_rotated = np.dot(np.asarray(merged_pcd.points) - center, rotation_matrix)
