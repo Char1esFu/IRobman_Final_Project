@@ -20,8 +20,6 @@ class BoundingBox:
         
         # Initialize bounding box properties
         self.obb_corners = None    # Oriented bounding box vertices
-        self.aabb_min = None       # Axis-aligned bounding box minimum point
-        self.aabb_max = None       # Axis-aligned bounding box maximum point
         self.obb_dims = None       # Oriented bounding box dimensions
         self.rotation_matrix = None # Rotation matrix
         self.center = None         # Centroid
@@ -188,10 +186,6 @@ class BoundingBox:
         
         # 8. Transform vertices back to original coordinate system
         self.obb_corners = np.dot(bbox_corners_rotated, self.rotation_matrix.T) + xy_mean
-        
-        # 9. Calculate axis-aligned bounding box (AABB) for grasp sampling (based on OBB vertices)
-        self.aabb_min = np.min(self.obb_corners, axis=0)
-        self.aabb_max = np.max(self.obb_corners, axis=0)
         
         return self
     
