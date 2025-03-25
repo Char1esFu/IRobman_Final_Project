@@ -239,6 +239,7 @@ class BoundingBox:
         
         return self.height
     
+    ######################### Used in Grasp Execution #########################
     def get_center(self):
         """
         Get the center point of the bounding box
@@ -261,31 +262,8 @@ class BoundingBox:
         if self.rotation_matrix is None:
             raise ValueError("Please call compute_obb() first to calculate the bounding box")
         
-        return self.rotation_matrix
-    
-    def get_corners(self):
-        """
-        Get the 8 vertices of the bounding box
-        
-        Returns:
-        corners: Coordinates of 8 vertices, shape (8,3)
-        """
-        if self.obb_corners is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.obb_corners
-    
-    def get_aabb(self):
-        """
-        Get the minimum and maximum points of the axis-aligned bounding box
-        
-        Returns:
-        (min_point, max_point): Minimum and maximum points of the bounding box
-        """
-        if self.aabb_min is None or self.aabb_max is None:
-            raise ValueError("Please call compute_obb() first to calculate the bounding box")
-        
-        return self.aabb_min, self.aabb_max
+        return self.rotation_matrix    
+    ######################### Used in Grasp Execution #########################
     
     @staticmethod
     def compute_point_cloud_bbox(sim, collector, point_clouds, visualize_cloud=True):

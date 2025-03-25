@@ -1,8 +1,10 @@
 import numpy as np
 import pybullet as p
-import random
-import time
-from typing import List, Tuple, Dict, Optional, Any, Callable
+
+from typing import List, Tuple
+
+from src.robot import Robot
+from src.obstacle_tracker import ObstacleTracker
 
 class PotentialFieldPlanner:
     """
@@ -12,11 +14,7 @@ class PotentialFieldPlanner:
     Can be used for dynamic obstacle avoidance in combination with global RRT* path.
     
     Args:
-        robot_id: PyBullet robot ID
-        joint_indices: List of joint indices to control
-        lower_limits: Lower joint limits
-        upper_limits: Upper joint limits
-        ee_link_index: End effector link index
+        robot: Instance of Robot class
         obstacle_tracker: Instance of ObstacleTracker to get obstacle positions
         max_iterations: Maximum number of iterations for potential field descent
         step_size: Step size for gradient descent
@@ -29,12 +27,8 @@ class PotentialFieldPlanner:
     """
     def __init__(
         self,
-        robot_id: int,
-        joint_indices: List[int],
-        lower_limits: List[float],
-        upper_limits: List[float],
-        ee_link_index: int,
-        obstacle_tracker: Any,
+        robot: Robot,
+        obstacle_tracker: ObstacleTracker,
         max_iterations: int = 300,
         step_size: float = 0.01,
         d0: float = 0.2,
@@ -44,11 +38,7 @@ class PotentialFieldPlanner:
         collision_check_step: float = 0.05,
         reference_path_weight: float = 0.5
     ):
-        self.robot_id = robot_id
-        self.joint_indices = joint_indices
-        self.lower_limits = lower_limits
-        self.upper_limits = upper_limits
-        self.ee_link_index = ee_link_index
+        self.robot = robot
         self.obstacle_tracker = obstacle_tracker
         self.max_iterations = max_iterations
         self.step_size = step_size
@@ -59,7 +49,7 @@ class PotentialFieldPlanner:
         self.collision_check_step = collision_check_step
         self.reference_path_weight = reference_path_weight
         
-        self.dimension = len(joint_indices)
+        self.dimension = len(robot.arm_idx)
         
         # 可视化线条
         self.debug_lines = []
@@ -78,21 +68,21 @@ class PotentialFieldPlanner:
         """
         # 保存当前状态
         current_states = []
-        for i in self.joint_indices:
-            current_states.append(p.getJointState(self.robot_id, i)[0])
+        for i in self.robot.arm_idx:
+            current_states.append(p.getJointState(self.robot.id, i)[0])
             
         # 设置关节位置
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, joint_positions[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, joint_positions[i])
             
         # 获取末端执行器姿态
-        ee_state = p.getLinkState(self.robot_id, self.ee_link_index)
+        ee_state = p.getLinkState(self.robot.id, self.robot.ee_idx)
         ee_pos = np.array(ee_state[0])
         ee_orn = np.array(ee_state[1])
         
         # 恢复原始状态
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, current_states[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, current_states[i])
             
         return ee_pos, ee_orn
     
@@ -109,16 +99,16 @@ class PotentialFieldPlanner:
         ee_pos, _ = self._get_current_ee_pose(joint_pos)
         
         # 获取要检查的机器人链接位置
-        links_to_check = self.joint_indices + [self.ee_link_index]
+        links_to_check = self.robot.arm_idx + [self.robot.ee_idx]
         
         # 保存当前状态
         current_states = []
-        for i in self.joint_indices:
-            current_states.append(p.getJointState(self.robot_id, i)[0])
+        for i in self.robot.arm_idx:
+            current_states.append(p.getJointState(self.robot.id, i)[0])
             
         # 设置关节位置
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, joint_pos[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, joint_pos[i])
         
         # 检查障碍物碰撞
         collision = False
@@ -127,13 +117,13 @@ class PotentialFieldPlanner:
         obstacle_states = self.obstacle_tracker.get_all_obstacle_states()
         if obstacle_states is None or len(obstacle_states) == 0:
             # 恢复原始状态
-            for i, idx in enumerate(self.joint_indices):
-                p.resetJointState(self.robot_id, idx, current_states[i])
+            for i, idx in enumerate(self.robot.arm_idx):
+                p.resetJointState(self.robot.id, idx, current_states[i])
             return True  # 无障碍物，无碰撞
         
         # 检查每个链接与每个障碍物的碰撞
         for link_idx in links_to_check:
-            link_state = p.getLinkState(self.robot_id, link_idx)
+            link_state = p.getLinkState(self.robot.id, link_idx)
             link_pos = np.array(link_state[0])
             
             for obstacle in obstacle_states:
@@ -157,8 +147,8 @@ class PotentialFieldPlanner:
                 break
                 
         # 恢复原始状态
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, current_states[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, current_states[i])
             
         return not collision
     
@@ -199,15 +189,15 @@ class PotentialFieldPlanner:
         """
         # 保存当前状态
         current_states = []
-        for i in self.joint_indices:
-            current_states.append(p.getJointState(self.robot_id, i)[0])
+        for i in self.robot.arm_idx:
+            current_states.append(p.getJointState(self.robot.id, i)[0])
             
         # 设置关节位置
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, q[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, q[i])
         
         # 要检查的链接
-        links_to_check = self.joint_indices + [self.ee_link_index]
+        links_to_check = self.robot.arm_idx + [self.robot.ee_idx]
         
         # 从跟踪器获取障碍物状态
         obstacle_states = self.obstacle_tracker.get_all_obstacle_states()
@@ -216,7 +206,7 @@ class PotentialFieldPlanner:
         
         if obstacle_states:
             for link_idx in links_to_check:
-                link_state = p.getLinkState(self.robot_id, link_idx)
+                link_state = p.getLinkState(self.robot.id, link_idx)
                 link_pos = np.array(link_state[0])
                 
                 for obstacle in obstacle_states:
@@ -238,8 +228,8 @@ class PotentialFieldPlanner:
                         potential += 0.5 * self.K_rep * ((1.0 / dist) - (1.0 / self.d0))**2
         
         # 恢复原始状态
-        for i, idx in enumerate(self.joint_indices):
-            p.resetJointState(self.robot_id, idx, current_states[i])
+        for i, idx in enumerate(self.robot.arm_idx):
+            p.resetJointState(self.robot.id, idx, current_states[i])
             
         return potential
     
@@ -349,7 +339,7 @@ class PotentialFieldPlanner:
         
         # 强制保持在关节限制内
         for j in range(self.dimension):
-            q_new[j] = max(self.lower_limits[j], min(self.upper_limits[j], q_new[j]))
+            q_new[j] = max(self.robot.lower_limits[j], min(self.robot.upper_limits[j], q_new[j]))
         
         # 检查是否无碰撞，如果有碰撞则尝试只使用排斥力
         if not self._is_collision_free(q_new):
@@ -361,7 +351,7 @@ class PotentialFieldPlanner:
                 
                 # 强制保持在关节限制内
                 for j in range(self.dimension):
-                    q_new[j] = max(self.lower_limits[j], min(self.upper_limits[j], q_new[j]))
+                    q_new[j] = max(self.robot.lower_limits[j], min(self.robot.upper_limits[j], q_new[j]))
                 
                 # 如果仍然有碰撞，返回当前位置
                 if not self._is_collision_free(q_new):

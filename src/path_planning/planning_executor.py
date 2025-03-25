@@ -384,11 +384,7 @@ class PlanningExecutor:
             print("\n初始化势场规划器用于实时避障...")
             
             pf_planner = PotentialFieldPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
+                robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
                 max_iterations=200,       # 每次规划迭代次数不需要太多
                 step_size=0.01,           # 势场下降步长
@@ -554,11 +550,7 @@ class PlanningExecutor:
             print("\n初始化势场规划器用于实时避障...")
             
             pf_planner = PotentialFieldPlanner(
-                robot_id=self.robot.id,
-                joint_indices=self.robot.arm_idx,
-                lower_limits=self.robot.lower_limits,
-                upper_limits=self.robot.upper_limits,
-                ee_link_index=self.robot.ee_idx,
+                robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
                 max_iterations=200,       # 每次规划迭代次数不需要太多
                 step_size=0.01,           # 势场下降步长

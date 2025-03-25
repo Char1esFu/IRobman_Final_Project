@@ -1,9 +1,12 @@
 from src.grasping.grasp_generation import GraspGeneration
+from src.ik_solver import DifferentialIKSolver
+from src.obstacle_tracker import ObstacleTracker
+from src.path_planning.simple_planning import SimpleTrajectoryPlanner
+
 import numpy as np
 import pybullet as p  # Import pybullet for visualization
 import cv2
-from src.obstacle_tracker import ObstacleTracker
-from typing import Optional, Tuple, List, Any, Dict
+from typing import Any, Dict
 
 class GraspExecution:
     """Robot grasping execution class, responsible for planning and executing complete grasping actions"""
@@ -16,9 +19,7 @@ class GraspExecution:
             sim: Simulation environment object
         """
         self.sim = sim
-        from src.ik_solver import DifferentialIKSolver
         self.ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-        from src.path_planning.simple_planning import SimpleTrajectoryPlanner
         self.trajectory_planner = SimpleTrajectoryPlanner
         self.config = config
 
@@ -228,8 +229,6 @@ class GraspExecution:
         # Get boundary box information
         center = bbox.get_center()
         rotation_matrix = bbox.get_rotation_matrix()
-        min_point, max_point = bbox.get_aabb()
-        obb_corners = bbox.get_corners()
         
         # Get rotated boundary box coordinates
         points_rotated = np.dot(np.asarray(merged_pcd.points) - center, rotation_matrix)
