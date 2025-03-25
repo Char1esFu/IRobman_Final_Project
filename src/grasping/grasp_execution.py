@@ -80,8 +80,9 @@ class GraspExecution:
         self._wait(0.5)
         
         # Close gripper to grasp object
-        self.close_gripper()    
-    
+        # self.close_gripper()
+        self.close_gripper_hybrid()
+        
     def _execute_trajectory(self, trajectory, speed=1/240.0):
         """Execute trajectory"""
         for joint_target in trajectory:
@@ -114,6 +115,17 @@ class GraspExecution:
             jointIndices=self.sim.robot.gripper_idx,
             controlMode=p.POSITION_CONTROL,
             targetPositions=[width, width]
+        )
+        self._wait(1.0)
+    
+    def close_gripper_hybrid(self, target_width=0.01, max_force=10.0):
+        """混合位置和力控制来闭合爪子"""
+        p.setJointMotorControlArray(
+            self.sim.robot.id,
+            jointIndices=self.sim.robot.gripper_idx,
+            controlMode=p.POSITION_CONTROL,
+            targetPositions=[target_width, target_width],
+            forces=[max_force, max_force]
         )
         self._wait(1.0)
     
