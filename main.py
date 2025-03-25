@@ -127,8 +127,9 @@ if __name__ == "__main__":
                 print(f"\nMaximum z-axis point from the high viewpoint cloud: {data['max_z_point']}")
         
         # Step 2: Compute and visualize bounding box
+        bbox_calculator = BoundingBox(point_clouds, config, sim)
         if point_clouds:
-            bbox = BoundingBox.compute_point_cloud_bbox(sim, collector, point_clouds, not args.no_vis)
+            bbox = bbox_calculator.compute_point_cloud_bbox(point_clouds, not args.no_vis)
             
         # Step 3: Execute grasp (unless --no-grasp flag is set)
         grasp_executor = GraspExecution(sim, config)

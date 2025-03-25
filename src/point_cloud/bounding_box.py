@@ -2,11 +2,12 @@ import numpy as np
 import pybullet as p
 import open3d as o3d
 
+from src.point_cloud.point_cloud import PointCloudCollector
 class BoundingBox:
     """
     Class for calculating and visualizing point cloud bounding boxes
     """
-    def __init__(self, point_cloud):
+    def __init__(self, point_cloud, config, sim):
         """
         Initialize bounding box calculator
         
@@ -28,6 +29,101 @@ class BoundingBox:
         self.center = None         # Centroid
         self.height = None         # Object height
         self.debug_lines = []      # Line IDs for visualization
+        self.config = config
+        self.sim = sim
+        
+        self.collector = PointCloudCollector(config, sim)
+    
+    def visualize_point_clouds(self, collected_data, show_frames=True, show_merged=True):
+        """
+        Visualize collected point clouds using Open3D
+        
+        Parameters:
+        collected_data: List of dictionaries containing point cloud data
+        show_frames: Whether to show coordinate frames
+        show_merged: Whether to show merged point cloud
+        """
+        if not collected_data:
+            print("No point cloud data to visualize")
+            return
+            
+        geometries = []
+        
+        # Add world coordinate frame
+        if show_frames:
+            coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
+            geometries.append(coord_frame)
+        
+        if show_merged:
+            # Merge point clouds using ICP
+            print("Merging point clouds using ICP...")
+            merged_pcd = self.merge_point_clouds(collected_data)
+            if merged_pcd is not None:
+                # Maintain original colors of the point cloud
+                geometries.append(merged_pcd)
+                print(f"Added merged point cloud with {len(merged_pcd.points)} points")
+        else:
+            # Add each point cloud and its camera coordinate frame
+            for i, data in enumerate(collected_data):
+                if 'point_cloud' in data and data['point_cloud'] is not None:
+                    # Add point cloud
+                    geometries.append(data['point_cloud'])
+                    
+                    # Add camera coordinate frame
+                    if show_frames:
+                        camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+                        camera_frame.translate(data['camera_position'])
+                        camera_frame.rotate(data['camera_rotation'])
+                        geometries.append(camera_frame)
+                        
+                    print(f"Added point cloud {i+1} with {len(data['point_cloud'].points)} points")
+        
+        print("Starting Open3D visualization...")
+        o3d.visualization.draw_geometries(geometries)
+    
+    def merge_point_clouds(self, collected_data):
+        """
+        Merge multiple point clouds using ICP registration
+        
+        Parameters:
+        collected_data: List of dictionaries containing point cloud data
+        
+        Returns:
+        merged_pcd: Merged point cloud
+        """
+        if not collected_data:
+            return None
+            
+        # Use first point cloud as reference
+        merged_pcd = collected_data[0]['point_cloud']
+        
+        # ICP parameters
+        threshold = 0.005  # Distance threshold
+        trans_init = np.eye(4)  # Initial transformation
+        
+        # Merge remaining point clouds
+        for i in range(1, len(collected_data)):
+            current_pcd = collected_data[i]['point_cloud']
+            
+            # Execute ICP
+            reg_p2p = o3d.pipelines.registration.registration_icp(
+                current_pcd, merged_pcd, threshold, trans_init,
+                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
+            )
+            
+            # Transform current point cloud
+            current_pcd.transform(reg_p2p.transformation)
+            
+            # Merge point clouds
+            merged_pcd += current_pcd
+            
+            # Optional: Use voxel downsampling to remove duplicate points
+            merged_pcd = merged_pcd.voxel_down_sample(voxel_size=0.005)
+            
+            print(f"Merged point cloud {i+1}, fitness: {reg_p2p.fitness}")
+        
+        return merged_pcd
     
     def compute_obb(self):
         """
@@ -265,14 +361,11 @@ class BoundingBox:
         return self.rotation_matrix    
     ######################### Used in Grasp Execution #########################
     
-    @staticmethod
-    def compute_point_cloud_bbox(sim, collector, point_clouds, visualize_cloud=True):
+    def compute_point_cloud_bbox(self, point_clouds, visualize_cloud=True):
         """
         Calculate and visualize point cloud bounding box
         
         Parameters:
-        sim: Simulation environment object
-        collector: Point cloud collector object
         point_clouds: Collected point cloud data
         visualize_cloud: Whether to visualize the point cloud
         
@@ -285,11 +378,11 @@ class BoundingBox:
         if visualize_cloud and point_clouds:
             # Display individual point clouds
             print("\nVisualizing individual point clouds...")
-            collector.visualize_point_clouds(point_clouds, show_merged=False)
+            self.visualize_point_clouds(point_clouds, show_merged=False)
         
         # Merge point clouds
         print("\nMerging point clouds...")
-        merged_cloud = collector.merge_point_clouds(point_clouds)
+        merged_cloud = self.merge_point_clouds(point_clouds)
         
         # Visualize merged point cloud
         if visualize_cloud and merged_cloud is not None:
@@ -300,11 +393,11 @@ class BoundingBox:
                 'camera_position': np.array([0, 0, 0]),  # Placeholder
                 'camera_rotation': np.eye(3)  # Placeholder
             }]
-            collector.visualize_point_clouds(merged_cloud_data, show_merged=False)
+            self.visualize_point_clouds(merged_cloud_data, show_merged=False)
         
         # Calculate bounding box
         print("\nCalculating bounding box...")
-        bbox = BoundingBox(merged_cloud)
+        bbox = BoundingBox(merged_cloud, self.config, self.sim)
         bbox.compute_obb()
         
         # Visualize bounding box
