@@ -2,6 +2,8 @@ import numpy as np
 import pybullet as p
 import cv2
 
+
+
 class ObstacleTracker:
     def __init__(self, n_obstacles=2, exp_settings=None):
         """

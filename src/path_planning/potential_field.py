@@ -4,7 +4,9 @@ import pybullet as p
 from typing import List, Tuple
 
 from src.robot import Robot
-from src.obstacle_tracker import ObstacleTracker
+from src.obstacle_tracker.obstacle_tracker import ObstacleTracker
+
+
 
 class PotentialFieldPlanner:
     """

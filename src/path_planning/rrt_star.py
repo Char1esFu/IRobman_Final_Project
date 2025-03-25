@@ -1,11 +1,14 @@
 import numpy as np
 import pybullet as p
 import random
-import time
+
 from scipy.spatial import KDTree
-from typing import List, Tuple, Dict, Optional, Any, Callable
+from typing import List, Tuple
+
 from src.robot import Robot
-from src.obstacle_tracker import ObstacleTracker
+from src.obstacle_tracker.obstacle_tracker import ObstacleTracker
+
+
 
 class RRTStarPlanner:
     """RRT* path planning algorithm for robotic arm.

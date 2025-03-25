@@ -1,12 +1,16 @@
+import cv2
+import numpy as np
+import pybullet as p
+import time
+
+from typing import Any, Dict
+
 from src.grasping.grasp_generation import GraspGeneration
-from src.ik_solver import DifferentialIKSolver
-from src.obstacle_tracker import ObstacleTracker
+from src.ik_solver.ik_solver import DifferentialIKSolver
+from src.obstacle_tracker.obstacle_tracker import ObstacleTracker
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
 
-import numpy as np
-import pybullet as p  # Import pybullet for visualization
-import cv2
-from typing import Any, Dict
+
 
 class GraspExecution:
     """Robot grasping execution class, responsible for planning and executing complete grasping actions"""
@@ -84,12 +88,10 @@ class GraspExecution:
             self.sim.robot.position_control(joint_target)
             for _ in range(1):
                 self.sim.step()
-                import time
                 time.sleep(speed)
     
     def _wait(self, seconds):
         """Wait for specified seconds"""
-        import time
         steps = int(seconds * 240)
         for _ in range(steps):
             self.sim.step()

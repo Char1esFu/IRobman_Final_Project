@@ -1,6 +1,6 @@
-import numpy as np
 import open3d as o3d
 from typing import Any, Sequence
+
 
 
 def visualize_3d_objs(objs: Sequence[Any], show_world_frame: bool = True) -> None:

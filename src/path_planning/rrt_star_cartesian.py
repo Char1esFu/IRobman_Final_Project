@@ -1,10 +1,13 @@
 import numpy as np
 import pybullet as p
 import random
-import time
+
 from scipy.spatial import KDTree
+
 from typing import List, Tuple, Dict, Optional, Any, Callable
-from src.ik_solver import DifferentialIKSolver
+from src.ik_solver.ik_solver import DifferentialIKSolver
+
+
 
 class RRTStarCartesianPlanner:
     """RRT* path planning algorithm in Cartesian space for robotic arm.

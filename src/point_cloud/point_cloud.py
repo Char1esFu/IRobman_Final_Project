@@ -1,14 +1,13 @@
-import os
-import glob
 import numpy as np
+import matplotlib.pyplot as plt
 import pybullet as p
 import open3d as o3d
 import time
-import random
-from scipy.spatial.transform import Rotation
+
+from src.ik_solver.ik_solver import DifferentialIKSolver
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
-import numpy as np
-import matplotlib.pyplot as plt
+
+
 
 def visualize_depth_image(depth_image, highlight_point=None, mask=None):
     """
@@ -301,7 +300,6 @@ class PointCloudCollector:
         z_observe_orn = p.getQuaternionFromEuler([0, np.radians(-180), 0])  # Looking down
         
         # Solve IK
-        from src.ik_solver import DifferentialIKSolver
         ik_solver = DifferentialIKSolver(self.sim.robot.id, self.sim.robot.ee_idx, damping=0.05)
         high_point_target_joints = ik_solver.solve(z_observe_pos, z_observe_orn, initial_joints, max_iters=50, tolerance=0.001)
         

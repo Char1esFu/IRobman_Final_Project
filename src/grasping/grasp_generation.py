@@ -1,11 +1,14 @@
 import numpy as np
-from typing import Tuple, Sequence, Optional, Any
 import open3d as o3d
-import pybullet as p  # Import pybullet for visualization
+import pybullet as p
 
-import open3d as o3d
-from src.grasping import grasping_mesh
+from typing import Tuple, Sequence
+from scipy.spatial.transform import Rotation
+
+from src.grasping.grasping_mesh import create_grasp_mesh
 from src.grasping.object_mesh import visualize_3d_objs
+
+
 
 class GraspGeneration:
     def __init__(self, bbox_center, bbox_rotation_matrix, sim):
@@ -637,7 +640,6 @@ class GraspGeneration:
         R_world = R @ combined_transform
         
         # Convert rotation matrix to quaternion
-        from scipy.spatial.transform import Rotation
         rot_world = Rotation.from_matrix(R_world)
         euler_world = rot_world.as_euler('xyz', degrees=True)
         
@@ -706,7 +708,7 @@ class GraspGeneration:
         all_grasp_meshes = []
         for grasp in sampled_grasps:
             R, grasp_center = grasp
-            all_grasp_meshes.append(grasping_mesh.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+            all_grasp_meshes.append(create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
         
         # Evaluate grasping quality
         print("\nEvaluating grasping quality...")

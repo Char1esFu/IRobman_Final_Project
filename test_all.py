@@ -6,17 +6,20 @@ import random
 import numpy as np
 import pybullet as p
 import open3d as o3d
+
 from pybullet_object_models import ycb_objects  # type:ignore
-from src.simulation import Simulation
-from src.ik_solver import DifferentialIKSolver
-from src.obstacle_tracker import ObstacleTracker
-from src.path_planning.rrt_star import RRTStarPlanner
+from simulation import Simulation
+from ik_solver.ik_solver import DifferentialIKSolver
+from obstacle_tracker.obstacle_tracker import ObstacleTracker
+from path_planning.rrt_star import RRTStarPlanner
 # from src.potential_field import PotentialFieldPlanner
-from src.grasping.grasp_generation import GraspGeneration
+from grasping.grasp_generation import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
-from src.grasping import grasping_mesh
-from src.grasping import object_mesh
+from grasping.grasping_mesh import create_grasp_mesh
+from grasping.object_mesh import visualize_3d_objs
 from scipy.spatial.transform import Rotation
+
+
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()

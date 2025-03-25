@@ -33,18 +33,23 @@ pip install -e pybullet-object-models/
     ├── simulation.py # simulation class
     ├── utils.py # helpful utils
     │ # new features below
+    ├── bounding_box
+    │   └── bounding_box.py
     ├── grasping
+    │   ├── grasp_execution.py
+    │   ├── grasp_generation.py
     │   ├── grasping_mesh.py
-    │   └── grasping.py
+    │   └── object_mesh.py
+    ├── ik_solver
+    │   └── ik_solver.py
+    ├── obstacle_tracker
+    │   └── obstacle_tracker.py
     ├── path_planning
     │   ├── planning_executor.py
+    │   ├── potential_field.py
     │   ├── rrt_star_cartesian.py
     │   ├── rrt_star.py
     │   └── simple_planning.py
-    ├── point_cloud
-    │   ├── bounding_box.py
-    │   ├── object_mesh.py
-    │   └── point_cloud.py
-    ├── ik_solver.py
-    └── obstacle_tracker.py
+    └── point_cloud
+        └── point_cloud.py
 ```

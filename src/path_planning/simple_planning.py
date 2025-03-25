@@ -1,6 +1,11 @@
 import numpy as np
 import pybullet as p
-from typing import List, Tuple, Optional
+
+from typing import List
+
+from src.ik_solver.ik_solver import DifferentialIKSolver
+
+
 
 class SimpleTrajectoryPlanner:
     """
@@ -63,7 +68,6 @@ class SimpleTrajectoryPlanner:
         trajectory = []
         
         # Initialize IK solver
-        from src.ik_solver import DifferentialIKSolver
         ik_solver = DifferentialIKSolver(robot_id, ee_idx, damping=0.05)
         
         for step in range(steps + 1):

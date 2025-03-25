@@ -6,9 +6,12 @@ from typing import Optional, Tuple, List, Any, Dict
 from src.path_planning.rrt_star import RRTStarPlanner
 from src.path_planning.rrt_star_cartesian import RRTStarCartesianPlanner
 from src.path_planning.potential_field import PotentialFieldPlanner  
-from src.obstacle_tracker import ObstacleTracker
-from src.ik_solver import DifferentialIKSolver
+from src.obstacle_tracker.obstacle_tracker import ObstacleTracker
+from src.ik_solver.ik_solver import DifferentialIKSolver
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
+
+
+
 class PlanningExecutor:
     """
     Path planning executor, responsible for executing robot path planning from grasp position to target position.
@@ -559,7 +562,7 @@ class PlanningExecutor:
                 K_rep=100.0,                # 排斥势增益（加大以更好避障）
                 goal_threshold=0.2,      # 到达目标的阈值
                 collision_check_step=0.05,
-                reference_path_weight=0.7  # 全局路径的引力权重
+                reference_path_weight=1.0  # 全局路径的引力权重
             )
             
             # 设置全局参考路径
