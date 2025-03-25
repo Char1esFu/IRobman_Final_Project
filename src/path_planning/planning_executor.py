@@ -76,7 +76,7 @@ class PlanningExecutor:
             current_joint_pos = self.robot.get_joint_positions()
 
             start_joint_pos = self.ik_solver.solve(start_pos, start_orn, current_joint_pos, max_iters=50, tolerance=0.001)
-            start_joint_pos[0] = 0.9
+            start_joint_pos[0] = 0.7
 
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
@@ -95,7 +95,7 @@ class PlanningExecutor:
             #             time.sleep(1/240.)
             # current_joint_pos = self.robot.get_joint_positions()
 
-            start_joint_pos = [0.9, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
+            start_joint_pos = [0.7, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
                     self.sim.robot.position_control(joint_target)
@@ -118,7 +118,7 @@ class PlanningExecutor:
                     time.sleep(1/240.)
 
    
-            start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
+            start_joint_pos = [0.7, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
                     self.sim.robot.position_control(joint_target)
@@ -375,13 +375,13 @@ class PlanningExecutor:
             #             time.sleep(1/240.)
             # current_joint_pos = self.robot.get_joint_positions()
             # ----------------- 1) 获取目标信息 -----------------
-            goal_pos = np.array([0.45593274 ,0.55745936, 2.14598578])
+            goal_pos = np.array([0.54939217, 0.46558996, 2.14602761])
             # 可视化目标位置（如需要）
             if visualize:
                 self._visualize_goal_position(goal_pos)
             
         
-            goal_joint_pos = [0.9, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
+            goal_joint_pos = [0.7, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
             
             # ----------------- 2) 初始化势场规划器 -----------------
             print("\n初始化势场规划器用于实时避障...")
@@ -457,7 +457,7 @@ class PlanningExecutor:
                     self.sim.step()
                     time.sleep(1/240.)
 
-            start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
+            start_joint_pos = [0.7, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
                     self.sim.robot.position_control(joint_target)
@@ -502,13 +502,13 @@ class PlanningExecutor:
             current_joint_pos = self.robot.get_joint_positions()
 
             # ----------------- 1) 获取目标位置 -----------------
-            goal_pos = np.array([0.45593274 ,0.55745936, 2.14598578])
+            goal_pos = np.array([0.54939217, 0.46558996, 2.14602761])
             # 可视化目标位置（如需要）
             if visualize:
                 self._visualize_goal_position(goal_pos)
             
             start_joint_pos = self.robot.get_joint_positions()
-            goal_joint_pos = [0.9, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
+            goal_joint_pos = [0.7, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
             
             # ----------------- 2) 使用RRT*生成全局参考路径 -----------------
             print("\n使用RRT*生成全局参考路径...")
@@ -628,7 +628,7 @@ class PlanningExecutor:
                     self.sim.step()
                     time.sleep(1/240.)
 
-            start_joint_pos = [0.9, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
+            start_joint_pos = [0.7, 0.6099985502678034, 0.0026639666712291836, -0.47143263171620764, 0.0, 3.14*0.8, 2.9671]
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
                     self.sim.robot.position_control(joint_target)
