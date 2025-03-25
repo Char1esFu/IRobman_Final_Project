@@ -7,6 +7,43 @@ import time
 import random
 from scipy.spatial.transform import Rotation
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_depth_image(depth_image, highlight_point=None, mask=None):
+    """
+    可视化深度图，并在指定位置绘制一个点
+    
+    参数:
+    - depth_image: 深度图 (H, W)，单位: 米
+    - highlight_point: (x, y)，需要高亮的像素坐标 (可选)
+    - mask: (H, W) 布尔数组，仅显示目标区域（可选）
+    """
+    plt.figure(figsize=(8, 6))
+
+    # 归一化深度值，使可视化更清晰
+    depth_vis = np.copy(depth_image)
+    depth_vis[depth_vis == 0] = np.nan  # 避免 0 值干扰颜色映射
+
+    # 使用不同颜色映射显示深度图
+    plt.imshow(depth_vis, cmap='jet', interpolation='nearest')
+    plt.colorbar(label='Depth (m)')
+
+    # 可选：绘制目标区域的 mask
+    if mask is not None:
+        plt.imshow(np.where(mask, depth_vis, np.nan), cmap='jet', alpha=0.5)
+
+    # 可选：绘制高亮点
+    if highlight_point is not None:
+        x, y = highlight_point
+        plt.scatter(x, y, color='red', s=100, edgecolors='black', label="Highlighted Point")
+
+    plt.title("Depth Image Visualization")
+    plt.xlabel("X (pixels)")
+    plt.ylabel("Y (pixels)")
+    plt.legend()
+    plt.show()
+
 
 class PointCloudCollector:
     def __init__(self, config, sim):
@@ -74,8 +111,17 @@ class PointCloudCollector:
         Point cloud in camera coordinates (N,3) and corresponding colors (N,3)
         """
         # Extract pixel coordinates from target mask
+                # Convert image coordinates to camera coordinates
+    
         rows, cols = np.where(mask)
-        
+
+        # print(rows, cols)
+        # plt.imshow(rgb_image)
+        # plt.show()
+        # highlight_point = (cx,cy)
+        # visualize_depth_image(depth_image, highlight_point, mask)
+        # print("===========================================================",depth_image[int(cy), int(cx)])
+
         if len(rows) == 0:
             raise ValueError("No valid pixels found in target mask")
         
@@ -122,7 +168,33 @@ class PointCloudCollector:
         world_points = world_points_homogeneous[:, :3]
         
         return world_points
-
+    
+    def _get_ee_camera_params(self):
+        """
+        Get end effector camera position and rotation matrix
+        
+        Returns:
+        camera_pos: Camera position in world coordinates
+        camera_R: Camera rotation matrix (from camera to world coordinates)
+        """
+        # End effector pose
+        ee_pos, ee_orn = self.sim.robot.get_ee_pose()
+        
+        # End effector rotation matrix
+        ee_R = np.array(p.getMatrixFromQuaternion(ee_orn)).reshape(3, 3)
+        print("End effector orientation matrix:")
+        print(ee_R)
+        # Camera parameters
+        cam_cfg = self.config["world_settings"]["camera"]
+        ee_cam_orn = cam_cfg["ee_cam_orientation"]
+        ee_cam_R = np.array(p.getMatrixFromQuaternion(ee_cam_orn)).reshape(3, 3)
+        # Calculate camera position
+        camera_pos = ee_pos 
+        # Calculate camera rotation matrix
+        camera_R = ee_R @ ee_cam_R
+        
+        return camera_pos, camera_R
+    
     def _get_camera_extrinsic(self, camera_pos, camera_R):
         """
         Build camera extrinsic matrix (transformation from camera to world coordinates)
@@ -191,32 +263,7 @@ class PointCloudCollector:
         
         return pcd
 
-    def _get_ee_camera_params(self):
-        """
-        Get end effector camera position and rotation matrix
-        
-        Returns:
-        camera_pos: Camera position in world coordinates
-        camera_R: Camera rotation matrix (from camera to world coordinates)
-        """
-        # End effector pose
-        ee_pos, ee_orn = self.sim.robot.get_ee_pose()
-        
-        # End effector rotation matrix
-        ee_R = np.array(p.getMatrixFromQuaternion(ee_orn)).reshape(3, 3)
-        print("End effector orientation matrix:")
-        print(ee_R)
-        # Camera parameters
-        cam_cfg = self.config["world_settings"]["camera"]
-        ee_offset = np.array(cam_cfg["ee_cam_offset"])
-        ee_cam_orn = cam_cfg["ee_cam_orientation"]
-        ee_cam_R = np.array(p.getMatrixFromQuaternion(ee_cam_orn)).reshape(3, 3)
-        # Calculate camera position
-        camera_pos = ee_pos # Why does ee_pos + ee_R @ ee_offset cause an error?
-        # Calculate camera rotation matrix
-        camera_R = ee_R @ ee_cam_R
-        
-        return camera_pos, camera_R
+
 
     def visualize_point_clouds(self, collected_data, show_frames=True, show_merged=True):
         """
