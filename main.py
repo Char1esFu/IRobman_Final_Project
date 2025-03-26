@@ -66,7 +66,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbMasterChefCan",
+    parser.add_argument('--object', type=str, default="YcbPowerDrill",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -134,7 +134,7 @@ if __name__ == "__main__":
    
         # Step 3: Execute grasp (unless --no-grasp flag is set)
         grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
-        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(merged_points, True)
+        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(merged_points, True, args.object)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
 
 

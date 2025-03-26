@@ -3,7 +3,7 @@ import numpy as np
 import pybullet as p
 import time
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.grasping.grasp_generation import GraspGeneration
 from src.ik_solver.ik_solver import DifferentialIKSolver
@@ -156,7 +156,7 @@ class GraspExecution:
         self._execute_trajectory(lift_trajectory, sim_steps_per_point=5)
         return True
 
-    def execute_complete_grasp(self, point_clouds, visualize=True):
+    def execute_complete_grasp(self, point_clouds, visualize=True, object_name: Optional[str] = None):
         """
         Execute complete process of grasping planning and execution
         
@@ -169,7 +169,7 @@ class GraspExecution:
         self: Grasping executor object (if grasping is successful)
         """        
         grasp_generator = GraspGeneration(self.bbox_center, self.bbox_rotation_matrix, self.sim)
-        pose1_pos, pose1_orn, pose2_pos, pose2_orn = grasp_generator.final_compute_poses(point_clouds, visualize)
+        pose1_pos, pose1_orn, pose2_pos, pose2_orn = grasp_generator.final_compute_poses(point_clouds, visualize, object_name)
         # Execute grasping (pass calculated pose)
         print("\nStarting to execute grasping...")
         self.execute_grasp(pose1_pos, pose1_orn, pose2_pos, pose2_orn)

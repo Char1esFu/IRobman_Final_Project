@@ -2,7 +2,7 @@ import numpy as np
 import open3d as o3d
 import pybullet as p
 
-from typing import Tuple, Sequence
+from typing import Tuple, Sequence, Optional
 from scipy.spatial.transform import Rotation
 from src.grasping.mesh import visualize_3d_objs,create_grasp_mesh
 
@@ -347,10 +347,10 @@ class GraspGeneration:
         center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
       
         # Incorporate both distance scores into final quality score, giving higher weight to horizontal distance
-        final_quality = 0.1 * containment_ratio + 0.1 * center_score + 0.8 * (1-np.exp(-max_interception_depth_score * 1000))
+        final_quality = 0.1 * containment_ratio + 0.1 * center_score + 80 * (1-np.exp(-max_interception_depth_score * 1000))
         
         print(f"Grasp center: {grasp_center}")
-        print(f"Total distance: {distance_to_center:.4f}m, Total distance score: {center_score:.4f}")
+        print(f"Total distance: {distance_to_center}m, Total distance score: {center_score}")
         print(f"Final quality score: {final_quality}")
         
         return contained, final_quality
@@ -428,7 +428,7 @@ class GraspGeneration:
         
         return pose1_pos, pose1_orn, pose2_pos, pose2_orn
     
-    def final_compute_poses(self, merged_point_clouds, visualize=True):
+    def final_compute_poses(self, merged_point_clouds, visualize=True, object_name: Optional[str] = None):
         """
         Calculate pre-grasp and final grasp poses based on the best grasp
         
@@ -504,9 +504,16 @@ class GraspGeneration:
         best_grasp = None
         best_grasp_mesh = None
         highest_quality = 0
-        
+
+        if_collision = False
+
         for (pose, grasp_mesh) in zip(sampled_grasps_state, all_grasp_meshes):
-            if not self.check_grasp_collision(grasp_mesh, object_mesh=obj_triangle_mesh, object_pcd = None, num_colisions=1):
+            if object_name == "YcbPowerDrill":
+                if_collision = self.check_grasp_collision(grasp_mesh, object_mesh=None, object_pcd = merged_pcd , num_colisions=1)
+            else:
+                if_collision = self.check_grasp_collision(grasp_mesh, object_mesh= obj_triangle_mesh, object_pcd = None , num_colisions=1)
+
+            if not if_collision:
                 R, grasp_center = pose
                 
                 valid_grasp, grasp_quality = self.check_grasp_containment(
@@ -523,13 +530,13 @@ class GraspGeneration:
                     highest_quality = grasp_quality
                     best_grasp = pose
                     best_grasp_mesh = grasp_mesh
-                    print(f"Found better grasp, quality: {grasp_quality:.3f}")
+                    print(f"Found better grasp, quality: {grasp_quality}")
         
         if best_grasp is None:
             print("No valid grasp found!")
             return False, None
         
-        print(f"\nFound best grasp, quality score: {highest_quality:.4f}")
+        print(f"\nFound best grasp, quality score: {highest_quality}")
         
         # Calculate grasping pose (only calculate once)
         grasp_poses = self.compute_grasp_poses(best_grasp)

@@ -478,6 +478,16 @@ class PlanningExecutor:
         elif(method == "RRT*_PF_Plan"):
 
             current_joint_pos = self.robot.get_joint_positions()
+            start_joint_pos = [-1.8, -0.1834053988761717, 0.30703679700804354, -0.4583896277866867, 0.2661630896757948, 0.49144743727571705, -2.0497514664232424]
+            
+            Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
+            for joint_target in Path_start:
+                    self.sim.robot.position_control(joint_target)
+                    for _ in range(10):
+                        self.sim.step()
+                        time.sleep(1/240.)
+
+            current_joint_pos = self.robot.get_joint_positions()
 
             start_joint_pos = [0.9, -0.1834053988761717, 0.30703679700804354, -0.4583896277866867, 0.2661630896757948, 0.49144743727571705, -2.0497514664232424]
             

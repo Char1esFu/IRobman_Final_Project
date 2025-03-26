@@ -156,7 +156,10 @@ class YCBObject:
         self.obj_name = obj_name
         self.pos = position
         self.ori = p.getQuaternionFromEuler(orientation)
-        scaling = 1.0  # 1.5 times normal
+        if self.obj_name == "YcbStrawberry":
+            scaling = 1.5
+        else: 
+            scaling = 1.0  
         object_root_path = ycb_objects.getDataPath()
         files = glob.glob(os.path.join(object_root_path, "Ycb*"))
         obj_names = [file.split('/')[-1] for file in files]
