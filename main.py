@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbChipsCan",
+    parser.add_argument('--object', type=str, default="YcbGelatinBox",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')

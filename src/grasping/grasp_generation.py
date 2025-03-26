@@ -46,7 +46,7 @@ class GraspGeneration:
         grasp_directions = []  # 存储抓取方向（旋转矩阵）
         
         obb_dims = max_point_rotated - min_point_rotated
- 
+        # height_threshold = 0.15  # 15 centimeters
         
         x_size = obb_dims[0]
         y_size = obb_dims[1]
@@ -76,7 +76,7 @@ class GraspGeneration:
             # 抓取点不低于桌面高度
             grasp_center[2] = max(grasp_center[2], table_height)
             
-
+             
             # Z轴垂直向下
             grasp_z_axis = np.array([0, 0, -1])
             
@@ -85,7 +85,6 @@ class GraspGeneration:
             
             # Y轴（爪子开合方向）使用短边
             grasp_y_axis = short_axis
-
 
             # 确保坐标系方向正确
             if np.dot(np.cross(grasp_x_axis, grasp_y_axis), grasp_z_axis) < 0:
@@ -149,7 +148,7 @@ class GraspGeneration:
         # Sample points from mesh
         num_points = 5000  # Number of points for subsampling both meshes
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
-
+    
         if object_pcd is not None:
             object_pcl = object_pcd
         else:
@@ -167,6 +166,7 @@ class GraspGeneration:
                     return True  # Collision detected
 
         return is_collision
+
 
 
 
@@ -400,7 +400,6 @@ class GraspGeneration:
 
 
 
-
     def visualize_grasp_poses(self, 
                              pose1_pos, 
                              pose1_orn, 
@@ -553,6 +552,7 @@ class GraspGeneration:
         
         for (pose, grasp_mesh) in zip(sampled_grasps_state, all_grasp_meshes):
             if not self.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
+                print("===========================","not collision")
                 R, grasp_center = pose
                 
                 valid_grasp, grasp_quality, _ = self.check_grasp_containment(
