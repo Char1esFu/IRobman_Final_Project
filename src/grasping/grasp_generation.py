@@ -124,22 +124,11 @@ class GraspGeneration:
     def check_grasp_collision(
         self,
         grasp_meshes: Sequence[o3d.geometry.TriangleMesh],
+        object_mesh: o3d.geometry.TriangleMesh = None,
         object_pcd = None,
         num_colisions: int = 10,
         tolerance: float = 0.00001) -> bool:
-        """
-        Check if there is a collision between the gripper pose and the target object using point cloud sampling method.
 
-        Parameters:
-            grasp_meshes: List of mesh geometries representing gripper components
-            object_mesh: Triangle mesh of the target object (optional)
-            object_pcd: Point cloud of the target object (optional)
-            num_colisions: Threshold number of points to determine collision
-            tolerance: Distance threshold for determining collision (meters)
-
-        Returns:
-            bool: True if collision is detected between the gripper and the object, False otherwise
-        """
         # Combine gripper meshes
         combined_gripper = o3d.geometry.TriangleMesh()
         for mesh in grasp_meshes:
@@ -148,8 +137,11 @@ class GraspGeneration:
         # Sample points from mesh
         num_points = 5000  # Number of points for subsampling both meshes
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
-    
-        if object_pcd is not None:
+        
+        # Determine which object representation to use
+        if object_mesh is not None:
+            object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
+        elif object_pcd is not None:
             object_pcl = object_pcd
         else:
             raise ValueError("Must provide at least one parameter from object_mesh or object_pcd")
@@ -166,10 +158,6 @@ class GraspGeneration:
                     return True  # Collision detected
 
         return is_collision
-
-
-
-
 
     def check_grasp_containment(
         self,
@@ -203,8 +191,7 @@ class GraspGeneration:
         right_center = np.asarray(right_finger_center)
 
         intersections = []
-        # Check for intersections between corresponding points
-        object_tree = o3d.geometry.KDTreeFlann(object_pcd)
+
 
         # Calculate the height and bounding box of the object
         points = np.asarray(object_pcd.points)
@@ -218,23 +205,15 @@ class GraspGeneration:
 
         obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=object_pcd, 
                                                                                           alpha=0.016)
-        # I just tuned alpha till I got a complete mesh with no holes, which had the best fidelity to the shape from the pcd
         
         obj_triangle_mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(obj_triangle_mesh)
-        scene = o3d.t.geometry.RaycastingScene()
-        obj_id = scene.add_triangles(obj_triangle_mesh_t)
-
-        # visualize_3d_objs([obj_triangle_mesh])
-
-        # now to know which direction to cast the rays towards, I added another coordinate 
-        #       frame in the cell above question 1 in this task (task 2)
-        # As shown in the coordinate frame, the fingers' tips begin at the at y=0, z=0 line, 
-        # while the rest of the fingers extend along the +y axis
+        scene = o3d.t.geometry.RaycastingScene()#使用 Open3D 的张量模块（o3d.t） 创建一个用于 光线投射（Raycasting） 的 3D 场景对象。创建的 scene 变量是一个 可以放入三角网格、点云等物体 的 3D 场景。可以在这个场景中发射光线（ray），去检测：光线是否命中了物体，命中点的坐标、法向量，与物体的距离等信息
+        scene.add_triangles(obj_triangle_mesh_t)
 
         hand_width = np.linalg.norm(left_center-right_center)
-        finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
-        
+        finger_vec = np.array([0, 0, finger_length])
+
         # Store ray start and end points for visualization
         ray_start_points = []
         ray_end_points = []
@@ -398,8 +377,6 @@ class GraspGeneration:
 
 
 
-
-
     def visualize_grasp_poses(self, 
                              pose1_pos, 
                              pose1_orn, 
@@ -551,7 +528,7 @@ class GraspGeneration:
         highest_quality = 0
         
         for (pose, grasp_mesh) in zip(sampled_grasps_state, all_grasp_meshes):
-            if not self.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
+            if not self.check_grasp_collision(grasp_mesh, object_mesh=obj_triangle_mesh, object_pcd = None, num_colisions=1):
                 print("===========================","not collision")
                 R, grasp_center = pose
                 
