@@ -190,17 +190,9 @@ class GraspGeneration:
         left_center = np.asarray(left_finger_center)
         right_center = np.asarray(right_finger_center)
 
-        intersections = []
-
-
         # Calculate the height and bounding box of the object
         points = np.asarray(object_pcd.points)
-        min_point = np.min(points, axis=0)
-        max_point = np.max(points, axis=0)
-        object_height = max_point[2] - min_point[2]
-        object_center = (min_point + max_point) / 2
-        
-        print(f"Object height: {object_height:.4f}m")
+        object_center = np.mean(points, axis=0)
         print(f"Object center point: {object_center}")
 
         obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=object_pcd, 
@@ -237,7 +229,6 @@ class GraspGeneration:
         # Central plane (original plane)
         rays = []
         contained = False
-        rays_hit = 0
         
         # Parallel planes on both sides in width direction
         for plane in range(1, width_planes + 1):
@@ -247,7 +238,7 @@ class GraspGeneration:
             # Right side plane
             for i in range(num_rays):
                 # Calculate sampling point along length direction, and offset in width direction
-                right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) + width_direction * current_offset
+                right_point = right_center - rotation_matrix.dot(0.5*finger_vec) + rotation_matrix.dot((i/num_rays)*finger_vec) + width_direction * current_offset
                 # Add ray from right offset point to left offset point
                 rays.append([np.concatenate([right_point, ray_direction])])
                 
@@ -258,7 +249,7 @@ class GraspGeneration:
             # Left side plane
             for i in range(num_rays):
                 # Calculate sampling point along length direction, and offset in width direction
-                right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) - width_direction * current_offset
+                right_point = right_center - rotation_matrix.dot(0.5*finger_vec) + rotation_matrix.dot((i/num_rays)*finger_vec) - width_direction * current_offset
                 # Add ray from right offset point to left offset point
                 rays.append([np.concatenate([right_point, ray_direction])])
                 
@@ -278,7 +269,7 @@ class GraspGeneration:
                     end.tolist(), 
                     lineColorRGB=[1, 0, 0],  # Red
                     lineWidth=1,
-                    lifeTime=5  # Disappear after 5 seconds
+                    lifeTime=0  # Disappear after 5 seconds
                 )
                 debug_lines.append(line_id)
         
@@ -288,21 +279,19 @@ class GraspGeneration:
         
         # Process ray casting results
         rays_hit = 0
-        max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
-        rays_from_left = []
-        
+        max_interception_depth_score = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
+        center_rays_from_left = []
+        center_rays_from_right = []
         # Track hits for left and right side ray planes
         left_side_hit = False
         right_side_hit = False
-        
-        # Calculate number of rays per plane
-        rays_per_plane = num_rays
-        
+    
         # Process results for all rays
         print("Processing ray casting results...")
+
         for idx, hit_point in enumerate(ans['t_hit']):
             # Use actual finger width to determine if ray hit the object
-            if hit_point[0] < hand_width:
+            if hit_point < hand_width:
                 rays_hit += 1
                 
                 # Determine if ray belongs to left or right side plane
@@ -318,8 +307,10 @@ class GraspGeneration:
                 
                 # Only calculate depth for rays in the center plane (original plane)
                 if idx < num_rays:
-                    left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
-                    rays_from_left.append([np.concatenate([left_new_center, -ray_direction])])
+                    left_new_center = left_center - rotation_matrix.dot(0.5*finger_vec) + rotation_matrix.dot((idx/num_rays)*finger_vec)
+                    right_new_center = right_center - rotation_matrix.dot(0.5*finger_vec) + rotation_matrix.dot((idx/num_rays)*finger_vec)
+                    center_rays_from_left.append([np.concatenate([left_new_center, -ray_direction])])
+                    center_rays_from_right.append([np.concatenate([right_new_center, ray_direction])])
         
         # Only consider contained when both left and right side planes have at least one ray hit
         contained = left_side_hit and right_side_hit
@@ -327,55 +318,42 @@ class GraspGeneration:
         containment_ratio = 0.0
         if contained:
             # Process rays from left side (only for center plane)
-            if rays_from_left:
-                rays_t = o3d.core.Tensor(rays_from_left, dtype=o3d.core.Dtype.Float32)
-                ans_left = scene.cast_rays(rays_t)
-                
-                for idx, hitpoint in enumerate(ans['t_hit']):
-                    if idx < num_rays:  # Only process rays in center plane
-                        left_idx = 0
-                        # Calculate interception depth using actual finger width
-                        if hitpoint[0] < hand_width: 
-                            interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
-                            max_interception_depth = max(max_interception_depth, interception_depth)
-                            left_idx += 1
+            if center_rays_from_left and center_rays_from_right:
+                left_rays_t = o3d.core.Tensor(center_rays_from_left, dtype=o3d.core.Dtype.Float32)
+                ans_left = scene.cast_rays(left_rays_t)
+                right_rays_t = o3d.core.Tensor(center_rays_from_left, dtype=o3d.core.Dtype.Float32)
+                ans_right = scene.cast_rays(right_rays_t)
 
-        print(f"the max interception depth is {max_interception_depth}")
+                if(len(ans_left['t_hit']) == len(ans_right['t_hit'])):
+                    hit_point_number = len(ans_left['t_hit'])
+                    for idx in range(hit_point_number):
+                        interception_depth = hand_width - ans_left['t_hit'][idx].item() - ans_right['t_hit'][idx].item()
+                        max_interception_depth_score = max(max_interception_depth_score, interception_depth)
+
+
+        print(f"the max interception depth is {max_interception_depth_score}")
         # Calculate overall ray hit ratio
         total_rays = len(rays)
         containment_ratio = rays_hit / total_rays
         print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{total_rays})")
         
-        intersections.append(contained)
-        # intersections.append(max_interception_depth[0])
-        # return contained, containment_ratio
-
         # Calculate distance from grasp center to object center
         grasp_center = (left_center + right_center) / 2
         
         # Calculate total distance in 3D space
         distance_to_center = np.linalg.norm(grasp_center - object_center)
         
-        # Calculate distance only in x-y plane (horizontal distance)
-        horizontal_distance = np.linalg.norm(grasp_center[:2] - object_center[:2])
-        
         # Calculate distance score (closer distance gives higher score)
         center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
-        
-        # Calculate horizontal distance score (closer horizontal distance gives higher score)
-        horizontal_score = np.exp(-horizontal_distance**2 / (2 * 0.03**2))
-        
+      
         # Incorporate both distance scores into final quality score, giving higher weight to horizontal distance
-        final_quality = containment_ratio * (1 + center_score + 1.5 * horizontal_score)
+        final_quality = 0.5 * containment_ratio + 0.4 * center_score + 0.1 * (1-np.exp(-max_interception_depth_score * 1000))
         
         print(f"Grasp center: {grasp_center}")
-        print(f"Horizontal distance: {horizontal_distance:.4f}m, Horizontal score: {horizontal_score:.4f}")
         print(f"Total distance: {distance_to_center:.4f}m, Total distance score: {center_score:.4f}")
-        print(f"Final quality score: {final_quality:.4f}")
+        print(f"Final quality score: {final_quality}")
         
-        return any(intersections), final_quality, max_interception_depth.item()
-
-
+        return contained, final_quality
 
     def visualize_grasp_poses(self, 
                              pose1_pos, 
@@ -529,10 +507,9 @@ class GraspGeneration:
         
         for (pose, grasp_mesh) in zip(sampled_grasps_state, all_grasp_meshes):
             if not self.check_grasp_collision(grasp_mesh, object_mesh=obj_triangle_mesh, object_pcd = None, num_colisions=1):
-                print("===========================","not collision")
                 R, grasp_center = pose
                 
-                valid_grasp, grasp_quality, _ = self.check_grasp_containment(
+                valid_grasp, grasp_quality = self.check_grasp_containment(
                     grasp_mesh[0].get_center(), 
                     grasp_mesh[1].get_center(),
                     finger_length=0.05,
