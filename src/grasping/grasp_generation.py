@@ -347,7 +347,7 @@ class GraspGeneration:
         center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
       
         # Incorporate both distance scores into final quality score, giving higher weight to horizontal distance
-        final_quality = 0.5 * containment_ratio + 0.4 * center_score + 0.1 * (1-np.exp(-max_interception_depth_score * 1000))
+        final_quality = 0.1 * containment_ratio + 0.1 * center_score + 0.8 * (1-np.exp(-max_interception_depth_score * 1000))
         
         print(f"Grasp center: {grasp_center}")
         print(f"Total distance: {distance_to_center:.4f}m, Total distance score: {center_score:.4f}")
@@ -466,7 +466,7 @@ class GraspGeneration:
         print("\nGenerating grasping candidates...")
         sampled_grasps_state = self.sample_grasps_state(
             center, 
-            num_grasps=200, 
+            num_grasps=2000, 
             sim=self.sim,
             rotation_matrix=rotation_matrix,
             min_point_rotated=min_point_rotated,
@@ -489,17 +489,17 @@ class GraspGeneration:
             alpha=0.08
         )
         
-        # Prepare list of meshes for visualization
-        vis_meshes = [obj_triangle_mesh]
+        # # Prepare list of meshes for visualization
+        # vis_meshes = [obj_triangle_mesh]
         
-        # Add all grasp meshes to list
-        for grasp_mesh in all_grasp_meshes:
-            vis_meshes.extend(grasp_mesh)
+        # # Add all grasp meshes to list
+        # for grasp_mesh in all_grasp_meshes:
+        #     vis_meshes.extend(grasp_mesh)
             
-        # Call visualization function
-        visualize_3d_objs(vis_meshes)
-        # Evaluate grasping quality
-        print("\nEvaluating grasping quality...")
+        # # Call visualization function
+        # visualize_3d_objs(vis_meshes)
+        # # Evaluate grasping quality
+        # print("\nEvaluating grasping quality...")
         
         best_grasp = None
         best_grasp_mesh = None

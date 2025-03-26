@@ -302,7 +302,6 @@ class PointCloudCollector:
         # Solve IK
         ik_solver = DifferentialIKSolver(self.sim.robot.id, self.sim.robot.ee_idx, damping=0.05)
         high_point_target_joints = ik_solver.solve(z_observe_pos, z_observe_orn, initial_joints, max_iters=50, tolerance=0.001)
-        
         # Generate trajectory
         print("Generating trajectory for high observation point...")
         high_point_trajectory = SimpleTrajectoryPlanner.generate_joint_trajectory(initial_joints, high_point_target_joints, steps=100)

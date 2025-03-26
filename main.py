@@ -15,6 +15,7 @@ from src.simulation import Simulation
 from src.point_cloud.point_cloud import PointCloudCollector
 from src.bounding_box.bounding_box import BoundingBox
 from src.path_planning.planning_executor import PlanningExecutor
+from src.path_planning.simple_planning import SimpleTrajectoryPlanner
 from src.grasping.grasp_execution import GraspExecution
 
 def run_exp(config: Dict[str, Any]):
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbGelatinBox",
+    parser.add_argument('--object', type=str, default="YcbMasterChefCan",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -135,8 +136,19 @@ if __name__ == "__main__":
         grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
         grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(merged_points, True)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
+
+
+        if not grasp_success:
+            current_joint_pos = sim.robot.get_joint_positions()
+            initial_joint_pos =  [-1.5915528202832085, -0.24416682828945482, -0.019026950408231606, -1.6025423951876885, -0.004713574479392203, 1.3594297228516712, 2.3159871484648096]
+            Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, initial_joint_pos, steps=100)
+            for joint_target in Path_start:
+                    sim.robot.position_control(joint_target)
+                    for _ in range(10):
+                        sim.step()
+                        time.sleep(1/240.)
         
-            # 清理边界框可视化
+        # 清理边界框可视化
         if bbox is not None:
             print("清理物体边界框可视化...")
             bbox.clear_visualization()
