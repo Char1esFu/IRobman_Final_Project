@@ -53,7 +53,7 @@ class GraspExecution:
         
         # Generate and execute trajectory to pre-grasp position
         trajectory = self.trajectory_planner.generate_joint_trajectory(start_joints, target_joints, steps=100)
-        self._execute_trajectory(trajectory)
+        self._execute_trajectory(trajectory, sim_steps_per_point=1)
         
         # Open gripper
         self.open_gripper()
@@ -67,29 +67,37 @@ class GraspExecution:
             current_joints, 
             pose2_pos, 
             pose2_orn, 
-            steps=50
+            steps=100
         )
         
         if not pose2_trajectory:
             print("Cannot generate trajectory to final grasp position")
             return False
         
-        self._execute_trajectory(pose2_trajectory)
+        self._execute_trajectory(pose2_trajectory, sim_steps_per_point=3)
         
         # Wait for stabilization
         self._wait(0.5)
         
         # Close gripper to grasp object
-        # self.close_gripper()
-        self.close_gripper_hybrid()
+        self.close_gripper()
         
-    def _execute_trajectory(self, trajectory, speed=1/240.0):
-        """Execute trajectory"""
+    def _execute_trajectory(self, trajectory, sim_steps_per_point=1):
+        """Execute trajectory
+        
+        Parameters:
+        trajectory: List of joint target positions
+        speed: Time step between simulation steps (smaller = faster, higher = slower)
+            Default 1/240 matches Bullet's default time step
+        """
         for joint_target in trajectory:
+            # 设置关节目标位置
             self.sim.robot.position_control(joint_target)
-            for _ in range(1):
+            
+            # 执行多个仿真步骤以确保平稳运动
+            for _ in range(sim_steps_per_point):
                 self.sim.step()
-                time.sleep(speed)
+                time.sleep(1/240.0)  # 保持与仿真默认步长相匹配
     
     def _wait(self, seconds):
         """Wait for specified seconds"""
@@ -108,17 +116,7 @@ class GraspExecution:
         )
         self._wait(0.5)
     
-    def close_gripper(self, width=0.01):
-        """Close robot gripper to grasp object"""
-        p.setJointMotorControlArray(
-            self.sim.robot.id,
-            jointIndices=self.sim.robot.gripper_idx,
-            controlMode=p.POSITION_CONTROL,
-            targetPositions=[width, width]
-        )
-        self._wait(1.0)
-    
-    def close_gripper_hybrid(self, target_width=0.01, max_force=10.0):
+    def close_gripper(self, target_width=0.005, max_force=100.0):
         """混合位置和力控制来闭合爪子"""
         p.setJointMotorControlArray(
             self.sim.robot.id,
@@ -155,7 +153,7 @@ class GraspExecution:
             print("Cannot generate lifting trajectory")
             return False
         
-        self._execute_trajectory(lift_trajectory, speed=1/240.0)
+        self._execute_trajectory(lift_trajectory, sim_steps_per_point=5)
         return True
 
     def execute_complete_grasp(self, point_clouds, visualize=True):
@@ -178,7 +176,7 @@ class GraspExecution:
 
         lift_success = self.lift_object()
 
-        is_success = self.is_grasped(mask_id=5, distance_threshold=0.15)
+        is_success = self.is_grasped()
 
         if is_success and lift_success:
             print("\nGrasping successful!")
@@ -188,74 +186,23 @@ class GraspExecution:
         
         return True, True
 
-    def is_grasped(self, mask_id=5, distance_threshold=0.15):
-        """
-        判断物体是否已被成功抓取
+    def is_grasped(self):
+        target_width = 0.02 # 有一次失败时夹爪闭合宽度为0.02
         
-        通过计算物体可见部分的中心与末端执行器之间的距离来判断
+        # 获取夹爪关节的当前位置
+        gripper_joint_states = []
+        for joint_idx in self.sim.robot.gripper_idx:
+            joint_state = p.getJointState(self.sim.robot.id, joint_idx)
+            gripper_joint_states.append(joint_state[0])  # joint_state[0]是关节位置
         
-        参数:
-            mask_id: 被抓取物体的掩码ID，默认为5
-            distance_threshold: 距离阈值，小于此值视为抓取成功，默认为0.1
-            
-        返回:
-            bool: 如果物体被成功抓取返回True，否则返回False
-        """
-        # 获取末端执行器相机图像
-        rgb, depth, seg = self.sim.get_static_renders()
+        # 计算夹爪实际距离
+        actual_width = sum(gripper_joint_states)
         
-        # 创建ObstacleTracker实例
-        tracker = ObstacleTracker(n_obstacles=2, exp_settings= self.config)
-        
-        # 检查物体ID是否在分割掩码中
-        if mask_id not in np.unique(seg):
-            print(f"警告: 物体ID {mask_id} 不在当前分割掩码中")
-            print(f"分割掩码中的可用ID: {np.unique(seg)}")
+        if actual_width < target_width:
+            print("警告: 没有抓取到物体")
             return False
-        
-        # 创建物体掩码
-        mask = (seg == mask_id).astype(np.uint8)
-        
-        # 找到轮廓
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if not contours:
-            print(f"警告: 物体ID {mask_id} 没有找到有效轮廓")
-            return False
-        
-        # 使用最大的轮廓
-        contour = max(contours, key=cv2.contourArea)
-
-        # 计算轮廓中心
-        M = cv2.moments(contour)
-        if M['m00'] == 0:
-            print(f"警告: 物体ID {mask_id} 的轮廓面积为零")
-            return False
-        
-        cx = int(M['m10']/M['m00'])
-        cy = int(M['m01']/M['m00'])
-        
-        # 检查深度
-        depth_buffer = depth[cy, cx]
-        metric_depth = tracker.convert_depth_to_meters(depth_buffer)
-        
-        # 使用ObstacleTracker的方法将像素坐标转换为世界坐标
-        # 不考虑半径偏移，因为我们只关心表面点
-        object_pos = tracker.pixel_to_world(cx, cy, metric_depth)
-        
-        # 获取末端执行器位置
-        ee_pos, _ = self.sim.robot.get_ee_pose()
-        
-        # 计算末端执行器与物体中心的距离
-        distance = np.linalg.norm(np.array(ee_pos) - object_pos)
-        
-        # 判断距离是否小于阈值
-        is_success = distance < distance_threshold
-        
-        # 输出调试信息
-        print(f"物体中心世界坐标: {object_pos}")
-        print(f"末端执行器坐标: {ee_pos}")
-        print(f"距离: {distance}, 阈值: {distance_threshold}")
-        print(f"抓取{'成功' if is_success else '失败'}")
-        
-        return is_success 
+        else:
+            print("抓取成功")
+            print(f"夹爪闭合宽度: {target_width}")
+            print(f"夹爪实际宽度: {actual_width}")
+            return True
