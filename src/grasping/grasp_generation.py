@@ -122,13 +122,9 @@ class GraspGeneration:
             
         return grasp_poses_list
     
-
-
-
     def check_grasp_collision(
         self,
         grasp_meshes: Sequence[o3d.geometry.TriangleMesh],
-        object_mesh: o3d.geometry.TriangleMesh = None,
         object_pcd = None,
         num_colisions: int = 10,
         tolerance: float = 0.00001) -> bool:
@@ -153,11 +149,8 @@ class GraspGeneration:
         # Sample points from mesh
         num_points = 5000  # Number of points for subsampling both meshes
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
-        
-        # Determine which object representation to use
-        if object_mesh is not None:
-            object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
-        elif object_pcd is not None:
+
+        if object_pcd is not None:
             object_pcl = object_pcd
         else:
             raise ValueError("Must provide at least one parameter from object_mesh or object_pcd")
@@ -174,6 +167,9 @@ class GraspGeneration:
                     return True  # Collision detected
 
         return is_collision
+
+
+
 
     def check_grasp_containment(
         self,
@@ -400,6 +396,11 @@ class GraspGeneration:
         
         return any(intersections), final_quality, max_interception_depth.item()
 
+
+
+
+
+
     def visualize_grasp_poses(self, 
                              pose1_pos, 
                              pose1_orn, 
@@ -442,9 +443,6 @@ class GraspGeneration:
         # Add text labels
         p.addUserDebugText("Pose 1", pose1_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
         p.addUserDebugText("Pose 2", pose2_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
-        
-
-
         
     def compute_grasp_poses(self, best_grasp):
         """
