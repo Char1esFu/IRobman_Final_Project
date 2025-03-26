@@ -4,9 +4,7 @@ import pybullet as p
 
 from typing import Tuple, Sequence
 from scipy.spatial.transform import Rotation
-
-from src.grasping.grasping_mesh import create_grasp_mesh
-from src.grasping.object_mesh import visualize_3d_objs
+from src.grasping.mesh import visualize_3d_objs,create_grasp_mesh
 
 
 
@@ -16,12 +14,11 @@ class GraspGeneration:
         self.bbox_rotation_matrix = bbox_rotation_matrix
         self.sim = sim
 
-    def sample_grasps(
+    def sample_grasps_state(
         self,
         center_point: np.ndarray,
         num_grasps: int,
         sim = None,
-        radius: float = 0.1,  # Keep parameter but not used
         rotation_matrix: np.ndarray = None,
         min_point_rotated: np.ndarray = None,
         max_point_rotated: np.ndarray = None,
@@ -34,7 +31,6 @@ class GraspGeneration:
             center_point: Centroid coordinates of the point cloud
             num_grasps: Number of random grasp poses to generate
             sim: Simulation object
-            radius: Maximum distance offset (kept but not used)
             rotation_matrix: OBB rotation matrix (from OBB coordinate system to world coordinate system)
             min_point_rotated: Minimum point of OBB in rotated coordinate system
             max_point_rotated: Maximum point of OBB in rotated coordinate system
@@ -43,241 +39,91 @@ class GraspGeneration:
         Returns:
             list: List of rotation matrices and translation vectors
         """
-        if rotation_matrix is None or min_point_rotated is None or max_point_rotated is None or center_rotated is None:
-            raise ValueError("Rotation matrix and OBB coordinates must be provided")
-
         grasp_poses_list = []
-        table_height = sim.robot.pos[2] # Robot base height
+        table_height = sim.robot.pos[2] + 0.01
         
-        # Calculate the size of OBB in three dimensions
+        grasp_points = []
+        grasp_directions = []  # 存储抓取方向（旋转矩阵）
+        
         obb_dims = max_point_rotated - min_point_rotated
+ 
         
-        # Determine the length sorting of dimensions
-        dims_with_idx = [(obb_dims[i], i) for i in range(3)]
-        dims_with_idx.sort()  # Sort by dimension length in ascending order
+        x_size = obb_dims[0]
+        y_size = obb_dims[1]
+        z_size = obb_dims[2]
+              
+        bbox_x_axis = rotation_matrix[:, 0]  # Bounding box的X轴方向
+        bbox_y_axis = rotation_matrix[:, 1]  # Bounding box的Y轴方向
         
-        # Get the shortest edge index and second shortest edge index
-        shortest_axis_idx = dims_with_idx[0][1]  # Coordinate axis index corresponding to the shortest edge
-        second_shortest_idx = dims_with_idx[1][1]  # Coordinate axis index corresponding to the second shortest edge
-        longest_axis_idx = dims_with_idx[2][1]  # Coordinate axis index corresponding to the longest edge
-
-        # Determine if the object is tall enough to apply the complete bounding box alignment strategy
-        # Set height threshold (unit: meters)
-        height_threshold = 0.35  # 35 centimeters
-        
-        # Calculate the vertical height of the object in the world coordinate system (z-axis direction)
-        object_z_height = obb_dims[2]  # Assume the 3rd dimension of the object coordinate system corresponds to the vertical direction
-        
-        # Determine if the vertical height exceeds the threshold
-        is_tall_object = object_z_height > height_threshold
-
-        # For flat objects, pre-calculate the centroid coordinates in the OBB coordinate system for subsequent sampling
-        if not is_tall_object:
-            # Convert centroid from world coordinate system to OBB coordinate system
-            if center_point is not None:
-                # center_point is the centroid in world coordinate system, needs to be converted to OBB coordinate system
-                center_relative_to_obb = center_point - center_rotated
-                center_in_obb = np.dot(center_relative_to_obb, rotation_matrix)
-            else:
-                # If centroid is not provided, use the center of OBB
-                center_in_obb = (min_point_rotated + max_point_rotated) / 2
-        
+        # 确定短边和长边对应的轴
+        if x_size < y_size:
+            short_axis = bbox_x_axis
+            long_axis = bbox_y_axis
+        else:
+            short_axis = bbox_y_axis
+            long_axis = bbox_x_axis
+              
+        # 在bounding box内均匀采样位置
         for idx in range(num_grasps):
-            # Sample inside OBB, using normal distribution for the shortest edge
-            rotated_coords = [0, 0, 0]
+            rotated_coords = np.zeros(3)
+            rotated_coords[0] = np.random.uniform(min_point_rotated[0], max_point_rotated[0])
+            rotated_coords[1] = np.random.uniform(min_point_rotated[1], max_point_rotated[1])
+            rotated_coords[2] = np.random.uniform(min_point_rotated[2], max_point_rotated[2])
             
-            # Sample the shortest edge using normal distribution, dense in the middle
-            min_val = min_point_rotated[shortest_axis_idx]
-            max_val = max_point_rotated[shortest_axis_idx]
+            # 将采样点从旋转坐标系转回世界坐标系
+            grasp_center = np.dot(rotated_coords, rotation_matrix.T) + center_rotated
             
-            # Mean is the midpoint of the edge length
-            mean = (min_val + max_val) / 2
-            # Standard deviation set to 1/6 of the edge length, so the edge length range is about ±3 standard deviations, covering 99.7% of the normal distribution
-            std = (max_val - min_val) / 6
-            
-            # Use truncated normal distribution to ensure values are within boundaries
-            while True:
-                sample = np.random.normal(mean, std)
-                if min_val <= sample <= max_val:
-                    rotated_coords[shortest_axis_idx] = sample
-                    break
-            
-            # Determine if it's a flat object (vertical downward grasping situation)
-            if not is_tall_object:
-                # In front view, another edge besides the shortest edge (could be the longest or second shortest)
-                # Determine which axis is the vertical axis
-                vertical_axis_idx = None
-                axes = [rotation_matrix[:, i] for i in range(3)]
-                
-                # Calculate the dot product of each axis with the world coordinate system Z-axis, find the axis closest to the vertical direction
-                z_world = np.array([0, 0, 1])
-                z_dots = [abs(np.dot(axis, z_world)) for axis in axes]
-                vertical_axis_idx = np.argmax(z_dots)
-                
-                # Find the two axes on the horizontal plane (except the vertical axis)
-                horizontal_axes = [i for i in range(3) if i != vertical_axis_idx]
-                
-                # Now we have two horizontal axes, one of which is the shortest edge
-                # The other is the "other edge" we're looking for
-                other_axis_idx = horizontal_axes[0] if horizontal_axes[0] != shortest_axis_idx else horizontal_axes[1]
-                
-                # Sample this "other edge" using normal distribution centered at the centroid
-                min_other = min_point_rotated[other_axis_idx]
-                max_other = max_point_rotated[other_axis_idx]
-                
-                # Use the projection of the centroid on this axis as the mean
-                mean_other = center_in_obb[other_axis_idx]
-                # If the centroid projection is outside the bounding box range, use the midpoint of the bounding box as the mean
-                if mean_other < min_other or mean_other > max_other:
-                    mean_other = (min_other + max_other) / 2
-                
-                # Standard deviation set to 1/6 of the edge length
-                std_other = (max_other - min_other) / 6
-                
-                # Sample using truncated normal distribution
-                while True:
-                    sample = np.random.normal(mean_other, std_other)
-                    if min_other <= sample <= max_other:
-                        rotated_coords[other_axis_idx] = sample
-                        break
-                
-                # Vertical axis (Z-axis) uses uniform distribution or distribution biased towards the top
-                # Since it's vertical downward grasping, we might prefer to start grasping from near the top of the object
-                min_z = min_point_rotated[vertical_axis_idx]
-                max_z = max_point_rotated[vertical_axis_idx]
-                # Top-biased sampling (using Beta distribution or other biased distribution)
-                # Simplified here as uniform distribution, but closer to the top
-                top_bias = 0.7  # Degree of bias towards the top, 0.5 is uniform, larger is closer to the top
-                z_sample = min_z + (max_z - min_z) * (1 - np.random.beta(1, top_bias))
-                rotated_coords[vertical_axis_idx] = z_sample
-            else:
-                # For tall objects, the remaining two axes still use uniform distribution
-                rotated_coords[second_shortest_idx] = np.random.uniform(
-                    min_point_rotated[second_shortest_idx],
-                    max_point_rotated[second_shortest_idx]
-                )
-                rotated_coords[longest_axis_idx] = np.random.uniform(
-                    min_point_rotated[longest_axis_idx], 
-                    max_point_rotated[longest_axis_idx]
-                )
-            
-            grasp_center_rotated = np.array(rotated_coords)
-            
-            # Transform the sampling point from rotated coordinate system back to world coordinate system
-            grasp_center = np.dot(grasp_center_rotated, rotation_matrix.T) + center_rotated
-            
-            # Ensure grasp point is not lower than the table height
+            # 抓取点不低于桌面高度
             grasp_center[2] = max(grasp_center[2], table_height)
-            print(f"grasp_center: {grasp_center}")
+            
 
-            # Determine grasp pose based on OBB
-            # 1. Calculate the size of OBB in three dimensions
-            obb_dims = max_point_rotated - min_point_rotated
+            # Z轴垂直向下
+            grasp_z_axis = np.array([0, 0, -1])
             
-            # 2. Determine the length sorting of dimensions
-            dims_with_idx = [(obb_dims[i], i) for i in range(3)]
-            dims_with_idx.sort()  # Sort by dimension length in ascending order
+            # X轴（爪子厚度方向）使用长边
+            grasp_x_axis = long_axis
             
-            # Get the shortest edge index and second shortest edge index
-            shortest_axis_idx = dims_with_idx[0][1]  # Coordinate axis index corresponding to the shortest edge
-            second_shortest_idx = dims_with_idx[1][1]  # Coordinate axis index corresponding to the second shortest edge
-            longest_axis_idx = dims_with_idx[2][1]  # Coordinate axis index corresponding to the longest edge
-            
-            # 3. Extract three coordinate axis directions from rotation_matrix
-            axes = [rotation_matrix[:, i] for i in range(3)]  # Three axis directions of OBB
-            
-            # Determine if the object is tall enough to apply the complete bounding box alignment strategy
-            # Set height threshold (unit: meters)
-            height_threshold = 0.35  # 35 centimeters
-            
-            # Calculate the vertical height of the object in the world coordinate system (z-axis direction), not the longest edge
-            # The z-axis height of the object is defined as the dimension of the bounding box in the z direction
-            object_z_height = obb_dims[2]  # Assume the 3rd dimension of the object coordinate system corresponds to the vertical direction
-            
-            # Determine if the vertical height exceeds the threshold
-            is_tall_object = object_z_height > height_threshold
-            
-            # 4. Construct new rotation matrix
-            if is_tall_object:
-                # For tall objects, use the complete bounding box alignment strategy
-                # Gripper X-axis (fingertip opening direction) corresponds to the shortest edge
-                grasp_x_axis = axes[shortest_axis_idx]
-                # Gripper Y-axis (fingertip extension direction) corresponds to the second shortest edge
-                grasp_y_axis = axes[second_shortest_idx]
-                # Gripper Z-axis determined by cross product
-                grasp_z_axis = np.cross(grasp_x_axis, grasp_y_axis)
-                
-                # Ensure coordinate system is right-handed
-                dot_product = np.dot(grasp_z_axis, axes[longest_axis_idx])
-                if dot_product < 0:
-                    grasp_z_axis = -grasp_z_axis
-                
-                # Construct rotation matrix based on object principal axes
-                R = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
-            else:
-                # For flat objects, use simplified strategy
-                # Align Z-axis with the world coordinate system's Z-axis, pointing upward
-                grasp_z_axis = np.array([0, 0, 1])  # Vertical upward
-                
-                # Try to get the X-axis (fingertip opening direction) from the shortest edge of the object
-                # But first ensure this direction is not parallel to the Z-axis
-                candidate_x = axes[shortest_axis_idx]
-                dot_xz = np.dot(candidate_x, grasp_z_axis)
-                
-                if abs(dot_xz) > 0.9:  # Shortest edge is almost vertical, use second shortest edge instead
-                    candidate_x = axes[second_shortest_idx]
-                    dot_xz = np.dot(candidate_x, grasp_z_axis)
-                    
-                    if abs(dot_xz) > 0.9:  # Second shortest edge is also almost vertical, use fixed lateral direction
-                        grasp_x_axis = np.array([1, 0, 0])
-                    else:
-                        # Project second shortest edge to horizontal plane as X-axis
-                        grasp_x_axis = candidate_x - grasp_z_axis * dot_xz
-                else:
-                    # Project shortest edge to horizontal plane as X-axis
-                    grasp_x_axis = candidate_x - grasp_z_axis * dot_xz
-                
-                # Ensure X-axis is non-zero and normalized
-                if np.linalg.norm(grasp_x_axis) < 1e-6:
-                    grasp_x_axis = np.array([1, 0, 0])
-                else:
-                    grasp_x_axis = grasp_x_axis / np.linalg.norm(grasp_x_axis)
-                
-                # Calculate Y-axis by cross product (ensure orthogonality)
-                grasp_y_axis = np.cross(grasp_z_axis, grasp_x_axis)
-                grasp_y_axis = grasp_y_axis / np.linalg.norm(grasp_y_axis)
-                
-                # Recalculate X-axis to ensure strict orthogonality
-                grasp_x_axis = np.cross(grasp_y_axis, grasp_z_axis)
-                grasp_x_axis = grasp_x_axis / np.linalg.norm(grasp_x_axis)
-                
-                # Rotate gripper so Y-axis points in negative Z direction (downward)
-                # Gripper coordinate system: X-fingertip opening direction, Y-finger extension direction, Z-palm direction
-                # Create rotation matrix: [-x, -z, -y], making fingers point downward
-                R_adjust = np.array([
-                    [1, 0, 0],
-                    [0, 0, -1],
-                    [0, 1, 0]
-                ])
-                
-                # Construct our base rotation matrix
-                R_base = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
-                
-                # Apply adjustment rotation
-                R = R_base @ R_adjust
-            
-            # Print grasp strategy information
-            if idx == 0:  # Print only once
-                if is_tall_object:
-                    print(f"Object z-axis height ({object_z_height:.3f}m) exceeds threshold ({height_threshold:.3f}m), using complete bounding box alignment strategy")
-                else:
-                    print(f"Object z-axis height ({object_z_height:.3f}m) below threshold ({height_threshold:.3f}m), using simplified grasping strategy (fingertips along shortest edge, grasping from above)")
+            # Y轴（爪子开合方向）使用短边
+            grasp_y_axis = short_axis
 
-            assert grasp_center.shape == (3,)
+
+            # 确保坐标系方向正确
+            if np.dot(np.cross(grasp_x_axis, grasp_y_axis), grasp_z_axis) < 0:
+                grasp_y_axis = -grasp_y_axis
+    
+            # 构建旋转矩阵
+            R = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
+            grasp_center = grasp_center - 0.05 * grasp_z_axis
+            # # 保存旋转矩阵用于可视化
+            # grasp_directions.append(R)
+            
+            # 将抓取姿态添加到结果列表
             grasp_poses_list.append((R, grasp_center))
-
+        
+        # # 定义采样点轴的长度和颜色
+        # axis_length = 0.05  # 坐标轴长度，单位米
+        # x_color = [1, 0, 0]  # 红色表示X轴（爪子厚度方向）
+        # y_color = [0, 1, 0]  # 绿色表示Y轴（爪子开合方向）
+        # z_color = [0, 0, 1]  # 蓝色表示Z轴（爪子朝向）
+        
+        # for i, (point, direction) in enumerate(zip(grasp_points, grasp_directions)):
+        #     # 使用红色小球表示抓取点
+        #     p.addUserDebugPoints([point], [[1, 0, 0]], pointSize=5, lifeTime=0)
+            
+        #     # 提取三个轴的方向向量
+        #     x_axis = direction[:, 0] * axis_length
+        #     y_axis = direction[:, 1] * axis_length
+        #     z_axis = direction[:, 2] * axis_length
+            
+        #     # 画出三个坐标轴
+        #     p.addUserDebugLine(point, np.array(point) + x_axis, x_color, lineWidth=2, lifeTime=0)
+        #     p.addUserDebugLine(point, np.array(point) + y_axis, y_color, lineWidth=2, lifeTime=0)
+        #     p.addUserDebugLine(point, np.array(point) + z_axis, z_color, lineWidth=2, lifeTime=0)
+            
         return grasp_poses_list
     
+
+
 
     def check_grasp_collision(
         self,
@@ -328,17 +174,6 @@ class GraspGeneration:
                     return True  # Collision detected
 
         return is_collision
-    
-    def grasp_dist_filter(self,
-                        center_grasp: np.ndarray,
-                        mesh_center: np.ndarray,
-                        tolerance: float = 0.05)->bool:
-        is_within_range = False
-        #######################TODO#######################
-        if np.linalg.norm(center_grasp - mesh_center) < tolerance:
-            is_within_range = True
-        ##################################################
-        return is_within_range   
 
     def check_grasp_containment(
         self,
@@ -420,7 +255,7 @@ class GraspGeneration:
         
         # Define width direction parameters
         width_planes = 1  # Number of planes on each side in width direction
-        width_offset = 0.015  # Offset between planes (meters)
+        width_offset = 0.01  # Offset between planes (meters)
         
         # ===== Generate multiple parallel ray planes =====
         print("Generating multiple parallel ray planes...")
@@ -608,6 +443,9 @@ class GraspGeneration:
         p.addUserDebugText("Pose 1", pose1_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
         p.addUserDebugText("Pose 2", pose2_pos + [0, 0, 0.05], [1, 1, 1], 1.5)
         
+
+
+        
     def compute_grasp_poses(self, best_grasp):
         """
         Calculate pre-grasp and final grasp poses based on the best grasp
@@ -620,27 +458,10 @@ class GraspGeneration:
         """
         R, grasp_center = best_grasp
         
-        # Build offset vector in gripper coordinate system
-        local_offset = np.array([0, 0.06, 0])
-        
-        # Transform offset vector from gripper coordinate system to world coordinate system
-        world_offset = R @ local_offset
-        
-        # Calculate compensated end-effector target position
-        ee_target_pos = grasp_center + world_offset
-        
-        # Add coordinate system transformation
-        combined_transform = np.array([
-            [0, -1, 0],
-            [0, 0, -1],
-            [1, 0, 0]
-        ])
-        
-        # Apply combined transformation
-        R_world = R @ combined_transform
+        ee_target_pos = grasp_center
         
         # Convert rotation matrix to quaternion
-        rot_world = Rotation.from_matrix(R_world)
+        rot_world = Rotation.from_matrix(R)
         euler_world = rot_world.as_euler('xyz', degrees=True)
         
         # Define pose 2 (final grasp pose)
@@ -648,14 +469,14 @@ class GraspGeneration:
         pose2_orn = p.getQuaternionFromEuler([euler_world[0]/180*np.pi, euler_world[1]/180*np.pi, euler_world[2]/180*np.pi])
         
         # Calculate pose 1 (pre-grasp position) - move along z-axis of pose 2 backwards
-        pose2_rot_matrix = R_world
+        pose2_rot_matrix = R
         z_axis = pose2_rot_matrix[:, 2]
         pose1_pos = pose2_pos - 0.15 * z_axis
         pose1_orn = pose2_orn
         
         return pose1_pos, pose1_orn, pose2_pos, pose2_orn
     
-    def final_compute_poses(self, point_clouds, visualize=True):
+    def final_compute_poses(self, merged_point_clouds, visualize=True):
         """
         Calculate pre-grasp and final grasp poses based on the best grasp
         
@@ -667,12 +488,9 @@ class GraspGeneration:
         # Merge point clouds
         print("\nPreparing to merge point clouds...")
         merged_pcd = None
-        for data in point_clouds:
-            if 'point_cloud' in data and data['point_cloud'] is not None:
-                if merged_pcd is None:
-                    merged_pcd = data['point_cloud']
-                else:
-                    merged_pcd += data['point_cloud']
+        for data in merged_point_clouds:
+            merged_pcd = data['point_cloud']
+
         
         if merged_pcd is None:
             print("Error: Cannot merge point clouds, grasping terminated")
@@ -694,9 +512,9 @@ class GraspGeneration:
         
         # Generate grasping candidates
         print("\nGenerating grasping candidates...")
-        sampled_grasps = self.sample_grasps(
+        sampled_grasps_state = self.sample_grasps_state(
             center, 
-            num_grasps=100, 
+            num_grasps=200, 
             sim=self.sim,
             rotation_matrix=rotation_matrix,
             min_point_rotated=min_point_rotated,
@@ -706,10 +524,28 @@ class GraspGeneration:
         
         # Create mesh for each grasping candidate
         all_grasp_meshes = []
-        for grasp in sampled_grasps:
-            R, grasp_center = grasp
-            all_grasp_meshes.append(create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
         
+        for grasp in sampled_grasps_state:
+            R, grasp_center = grasp
+            gripper_meshes = create_grasp_mesh(center_point=grasp_center, rotation_matrix=R)
+            all_grasp_meshes.append(gripper_meshes)
+        # Visualize all grasp meshes
+        print("\nVisualizing all grasp candidates...")
+        # Create triangle mesh from point cloud for visualization
+        obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
+            pcd=merged_pcd, 
+            alpha=0.08
+        )
+        
+        # Prepare list of meshes for visualization
+        vis_meshes = [obj_triangle_mesh]
+        
+        # Add all grasp meshes to list
+        for grasp_mesh in all_grasp_meshes:
+            vis_meshes.extend(grasp_mesh)
+            
+        # Call visualization function
+        visualize_3d_objs(vis_meshes)
         # Evaluate grasping quality
         print("\nEvaluating grasping quality...")
         
@@ -717,7 +553,7 @@ class GraspGeneration:
         best_grasp_mesh = None
         highest_quality = 0
         
-        for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+        for (pose, grasp_mesh) in zip(sampled_grasps_state, all_grasp_meshes):
             if not self.check_grasp_collision(grasp_mesh, object_pcd=merged_pcd, num_colisions=1):
                 R, grasp_center = pose
                 

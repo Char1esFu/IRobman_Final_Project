@@ -15,7 +15,7 @@ from path_planning.rrt_star import RRTStarPlanner
 # from src.potential_field import PotentialFieldPlanner
 from grasping.grasp_generation import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
-from grasping.grasping_mesh import create_grasp_mesh
+from grasping.mesh import create_grasp_mesh
 from grasping.object_mesh import visualize_3d_objs
 from scipy.spatial.transform import Rotation
 

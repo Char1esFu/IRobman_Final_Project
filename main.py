@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    parser.add_argument('--object', type=str, default="YcbGelatinBox",
+    parser.add_argument('--object', type=str, default="YcbChipsCan",
                         help='Target object name')
     parser.add_argument('--no-vis', action='store_true',
                         help='Disable point cloud visualization')
@@ -129,11 +129,11 @@ if __name__ == "__main__":
         # Step 2: Compute and visualize bounding box
         if point_clouds:
             bbox_calculator = BoundingBox(point_clouds, config, sim)
-            bbox_center, bbox_rotation_matrix = bbox_calculator.compute_point_cloud_bbox(point_clouds, not args.no_vis)
-            
+            bbox_center, bbox_rotation_matrix, merged_points = bbox_calculator.compute_point_cloud_bbox(point_clouds, not args.no_vis)
+   
         # Step 3: Execute grasp (unless --no-grasp flag is set)
         grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
-        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(point_clouds, True)
+        grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(merged_points, True)
         print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
         
             # 清理边界框可视化

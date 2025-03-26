@@ -187,7 +187,7 @@ class GraspExecution:
         return True, True
 
     def is_grasped(self):
-        target_width = 0.02 # 有一次失败时夹爪闭合宽度为0.02
+        target_width = 0.015 # 有一次失败时夹爪闭合宽度为0.015
         
         # 获取夹爪关节的当前位置
         gripper_joint_states = []

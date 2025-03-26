@@ -354,4 +354,4 @@ class BoundingBox:
         # Print bounding box information
         print(f"\nBounding box information:")
 
-        return self.center, self.rotation_matrix
+        return self.center, self.rotation_matrix, merged_cloud_data

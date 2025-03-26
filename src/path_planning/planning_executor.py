@@ -476,23 +476,11 @@ class PlanningExecutor:
             print("Gripper opened, object placed at tray position")
 
         elif(method == "RRT*_PF_Plan"):
-  
-
-            start_pos = np.array([
-                0.2,
-                0.1,
-                2.5
-            ])
-            start_orn = p.getQuaternionFromEuler([0, np.pi, 0])  # Vertically downward
-
-            # if visualize:
-            #     self._visualize_goal_position(start_pos)
 
             current_joint_pos = self.robot.get_joint_positions()
 
-            start_joint_pos = self.ik_solver.solve(start_pos, start_orn, current_joint_pos, max_iters=50, tolerance=0.001)
-            start_joint_pos[0] = 0.9
-
+            start_joint_pos = [0.9, -0.1834053988761717, 0.30703679700804354, -0.4583896277866867, 0.2661630896757948, 0.49144743727571705, -2.0497514664232424]
+            
             Path_start = SimpleTrajectoryPlanner.generate_joint_trajectory(current_joint_pos, start_joint_pos, steps=100)
             for joint_target in Path_start:
                     self.sim.robot.position_control(joint_target)
