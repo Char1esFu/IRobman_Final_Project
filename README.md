@@ -28,30 +28,6 @@ source .venv/bin/activate
 source .venv/bin/activate.fish
 ```
 
-## Usage
-
-```bash
-# run the main.py with different objects
-python3 main.py --object YcbBanana
-python3 main.py --object YcbFoamBrick
-python3 main.py --object YcbHammer
-python3 main.py --object YcbMediumClamp
-python3 main.py --object YcbPear
-python3 main.py --object YcbScissors
-python3 main.py --object YcbStrawberry
-python3 main.py --object YcbTennisBall
-python3 main.py --object YcbGelatinBox
-python3 main.py --object YcbMasterChefCan
-python3 main.py --object YcbPottedMeatCan
-python3 main.py --object YcbTomatoSoupCan
-python3 main.py --object YcbCrackerBox
-python3 main.py --object YcbMustardBottle
-python3 main.py --object YcbChipsCan
-python3 main.py --object YcbPowerDrill
-```
-
-
-
 ## Codebase Structure
 
 ```shell
@@ -84,4 +60,26 @@ python3 main.py --object YcbPowerDrill
     │   └── simple_planning.py
     └── point_cloud
         └── point_cloud.py
+```
+
+## Usage
+
+```bash
+# run the main.py with different objects
+python3 main.py --object YcbBanana
+python3 main.py --object YcbFoamBrick
+python3 main.py --object YcbHammer
+python3 main.py --object YcbMediumClamp
+python3 main.py --object YcbPear
+python3 main.py --object YcbScissors
+python3 main.py --object YcbStrawberry
+python3 main.py --object YcbTennisBall
+python3 main.py --object YcbGelatinBox
+python3 main.py --object YcbMasterChefCan
+python3 main.py --object YcbPottedMeatCan
+python3 main.py --object YcbTomatoSoupCan
+python3 main.py --object YcbCrackerBox
+python3 main.py --object YcbMustardBottle
+python3 main.py --object YcbChipsCan
+python3 main.py --object YcbPowerDrill
 ```

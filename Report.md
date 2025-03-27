@@ -19,7 +19,7 @@ File:  `src/bounding_box/bounding_box.py`
 
 ## Task 2: Control
 File:  `src/ik_solver/ik_solver.py`
-- Numerical inverse kinematics is ued to get the joint angles of the robot to reach the target position. We use damped least squares method here. 
+- Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. 
 - Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet. Not that it will cause problems, but we explored the possibility of using shadow client to work around. 
 - There are limitations, solving for long trajectory will result in large position and orientation error, which is why we use hard-coded trajectory in the first stage of planning. Details will be explained later.
 
@@ -29,7 +29,7 @@ Files:  `src/grasping/grasp_execution.py`, `src/grasping/grasp_generation.py`, `
 - A simplified gripper mesh is hand crafted in open3d by referring to Franka Emika Panda robot Product Manual.
   Link: `https://download.franka.de/documents/Product%20Manual%20Franka%20Hand_R50010_1.1_EN.pdf`
 - Then we sample the grasp positions uniformly within the bounding box. 
-- For the sampling of grasp orientation, the gripper is forced to aim downwards and calculate legnth and width of the bounding box. The gripper width (direction of opening and closing of gripper fingers) during sample is always parallel to the shorter side of the two, therefore grasping will be easier and more consistent. 
+- For the sampling of grasp orientation, the gripper is forced to aim downwards and calculate length and width of the bounding box. The gripper width (direction of opening and closing of gripper fingers) during sample is always parallel to the shorter side of the two, therefore grasping will be easier and more consistent. 
 - Then we check the collision between the gripper and the object. Note that YcbPowerDrill is a bit special, because it's not a convex object, and much more complicated compared to other objects. Mesh quality of this particular object has a lot to be desired. And it caused the collision detection to fail(every grasp pose is detected as collision). So we use point cloud to detect collision for this object. All the other objects are detected by mesh collision detection.
 - After collision detection, we check the grasp containment. 2 ray planes are created along the directions of finger thickness. Each ray plane has 50 rays from root to the tip of the fingers. The criteria consist of several parts:
   - At least 1 ray should intersect with the object for each ray plane as safe guard. 
