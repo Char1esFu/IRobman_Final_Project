@@ -20,6 +20,12 @@ sudo pacman -S uv
 # install dependencies(listed in requirement.txt)
 uv sync
 uv pip install -r requirement.txt
+
+# enable virtual environment
+# bash
+source .venv/bin/activate
+# fish
+source .venv/bin/activate.fish
 ```
 
 ## Usage
