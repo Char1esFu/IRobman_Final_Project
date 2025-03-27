@@ -103,50 +103,50 @@ class ObstacleTracker:
         detections = []
         potential_balls = []
         
-        # 固定的障碍物ID
+        # fixed obstacle IDs
         obstacle_ids = [6, 7]
-        # print(f"\n使用固定的障碍物ID: {obstacle_ids}")
+        # print(f"\nUsing fixed obstacle IDs: {obstacle_ids}")
         
-        # 直接处理固定ID的障碍物
+        # process fixed ID obstacles directly
         for obj_id in obstacle_ids:
-            # 检查该ID是否存在于分割掩码中
+            # check if the ID exists in the segmentation mask
             if obj_id not in np.unique(seg):
-                print(f"警告: ID {obj_id} 不在当前分割掩码中")
+                print(f"Warning: ID {obj_id} not in the current segmentation mask")
                 continue
                 
             mask = (seg == obj_id).astype(np.uint8)
             
-            # 找到轮廓
+            # find contours
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             if not contours:
-                print(f"警告: ID {obj_id} 没有找到有效轮廓")
+                print(f"Warning: ID {obj_id} no valid contours found")
                 continue
                 
-            # 使用最大的轮廓
+            # use the largest contour
             contour = max(contours, key=cv2.contourArea)
             area = cv2.contourArea(contour)
             
-            # 计算轮廓中心
+            # calculate the contour center
             M = cv2.moments(contour)
             if M['m00'] == 0:
-                print(f"警告: ID {obj_id} 的轮廓面积为零")
+                print(f"Warning: ID {obj_id} contour area is zero")
                 continue
                 
             cx = int(M['m10']/M['m00'])
             cy = int(M['m01']/M['m00'])
             
-            # 检查深度
+            # check depth
             depth_buffer = depth[cy, cx]
             metric_depth = self.convert_depth_to_meters(depth_buffer)
             
-            # 计算半径
+            # calculate the radius
             base_radius = self.calculate_metric_radius(area, metric_depth)
             
-            # 计算球心的世界坐标
+            # calculate the world position of the sphere center
             world_pos = self.pixel_to_world(cx, cy, metric_depth, radius=base_radius)
             
-            # 添加到潜在球体列表
+            # add to the potential sphere list
             potential_balls.append({
                 'id': obj_id,
                 'center': (cx, cy),
@@ -156,7 +156,7 @@ class ObstacleTracker:
                 'radius': base_radius
             })
 
-        # 直接使用所有检测到的球体
+        # directly use all detected spheres
         for ball in potential_balls:
             detections.append(np.array([
                 ball['world_pos'][0], 
@@ -247,25 +247,25 @@ class ObstacleTracker:
         return [self.get_obstacle_state(i) for i in range(self.n_obstacles)]
         
     def is_away(self):
-        """检查球体是否远离托盘位置
+        """Check if the sphere is away from the tray position
         
-        判断条件:
-        - 第一个球(ball1)的y坐标小于0.03
-        - 第二个球(ball2)的x坐标小于0.03
+        Conditions:
+        - the y coordinate of the first ball(ball1) is less than 0.03
+        - the x coordinate of the second ball(ball2) is less than 0.03
         
         Returns:
-            bool: 如果两个条件都满足则返回True，否则返回False
+            bool: True if both conditions are met, otherwise False
         """
-        # 确保我们有足够的球体
+        # ensure we have enough spheres
         if self.n_obstacles < 2:
             return False
             
-        # 获取球体位置
+        # get the sphere positions
         ball1_pos = self.latest_positions[0]
         ball2_pos = self.latest_positions[1]
-        # 检查条件
-        ball1_away = ball1_pos[0] < 0.03  # ball1的y坐标小于0.03
-        ball2_away = ball2_pos[1] < 0.03  # ball2的x坐标小于0.03
+        # check conditions
+        ball1_away = ball1_pos[0] < 0.03  # ball1's y coordinate is less than 0.03
+        ball2_away = ball2_pos[1] < 0.03  # ball2's x coordinate is less than 0.03
         
-        # 两个条件都满足时返回True
+        # return True if both conditions are met
         return ball1_away and ball2_away

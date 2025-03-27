@@ -1,5 +1,3 @@
-import cv2
-import numpy as np
 import pybullet as p
 import time
 
@@ -7,7 +5,6 @@ from typing import Any, Dict, Optional
 
 from src.grasping.grasp_generation import GraspGeneration
 from src.ik_solver.ik_solver import DifferentialIKSolver
-from src.obstacle_tracker.obstacle_tracker import ObstacleTracker
 from src.path_planning.simple_planning import SimpleTrajectoryPlanner
 
 
@@ -33,15 +30,15 @@ class GraspExecution:
         """
         Execute complete grasping process
         
-        参数：
-            best_grasp: 最佳抓取姿态 (R, grasp_center)
-            grasp_poses: 可选的预计算姿态 (pose1_pos, pose1_orn, pose2_pos, pose2_orn)
+        Parameters:
+            best_grasp: best grasp pose (R, grasp_center)
+            grasp_poses: optional pre-calculated poses (pose1_pos, pose1_orn, pose2_pos, pose2_orn)
             
         Returns:
             bool: True if grasping is successful, False otherwise
         """
         
-        # 获取当前机器人关节角度
+        # get current robot joint angles
         start_joints = self.sim.robot.get_joint_positions()
         
         # Solve IK for pre-grasp position
@@ -91,13 +88,13 @@ class GraspExecution:
             Default 1/240 matches Bullet's default time step
         """
         for joint_target in trajectory:
-            # 设置关节目标位置
+            # set joint target position
             self.sim.robot.position_control(joint_target)
             
-            # 执行多个仿真步骤以确保平稳运动
+            # execute multiple simulation steps to ensure smooth movement
             for _ in range(sim_steps_per_point):
                 self.sim.step()
-                time.sleep(1/240.0)  # 保持与仿真默认步长相匹配
+                time.sleep(1/240.0)  # match the default step of the simulation
     
     def _wait(self, seconds):
         """Wait for specified seconds"""
@@ -117,7 +114,7 @@ class GraspExecution:
         self._wait(0.5)
     
     def close_gripper(self, target_width=0.005, max_force=100.0):
-        """混合位置和力控制来闭合爪子"""
+        """Use mixed position and force control to close the gripper"""
         p.setJointMotorControlArray(
             self.sim.robot.id,
             jointIndices=self.sim.robot.gripper_idx,
@@ -187,22 +184,22 @@ class GraspExecution:
         return True, True
 
     def is_grasped(self):
-        target_width = 0.015 # 有一次失败时夹爪闭合宽度为0.015
+        target_width = 0.015 # when one grasp failed, the gripper closing width is 0.015
         
-        # 获取夹爪关节的当前位置
+        # get the current position of the gripper joint
         gripper_joint_states = []
         for joint_idx in self.sim.robot.gripper_idx:
             joint_state = p.getJointState(self.sim.robot.id, joint_idx)
-            gripper_joint_states.append(joint_state[0])  # joint_state[0]是关节位置
+            gripper_joint_states.append(joint_state[0])  # joint_state[0] is the joint position
         
-        # 计算夹爪实际距离
+        # calculate the actual distance of the gripper
         actual_width = sum(gripper_joint_states)
         
         if actual_width < target_width:
-            print("警告: 没有抓取到物体")
+            print("Warning: No object grasped")
             return False
         else:
-            print("抓取成功")
-            print(f"夹爪闭合宽度: {target_width}")
-            print(f"夹爪实际宽度: {actual_width}")
+            print("Grasp successful")
+            print(f"Gripper closing width: {target_width}")
+            print(f"Gripper actual width: {actual_width}")
             return True

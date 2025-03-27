@@ -18,11 +18,6 @@ world_settings:
     stat_cam_target_pos: [0, 0, 0.7] # static camera target position
     ee_cam_offset: [0.0, 0.0, 0.1]  # ee camera offset
     ee_cam_orientation: [0.0, 0.0, 0.0, 1.0]  # ee camera orientation
-tracker_settings:
-  process_noise: 0.1  # q值
-  measurement_noise: 0.1  # r值
-  initial_covariance: 100.0  # 初始P值
-  visualization_box_size: 0.3  # 可视化框大小
 robot_settings:
   urdf: franka_panda/panda.urdf
   table_scaling: 2

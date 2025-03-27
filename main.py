@@ -5,7 +5,6 @@ import time
 import numpy as np
 import argparse
 import pybullet as p
-import open3d as o3d
 
 from typing import Dict, Any
 
@@ -107,13 +106,13 @@ if __name__ == "__main__":
     sim.reset(args.object)
     collector = PointCloudCollector(config, sim)
 
-    # 设置最大尝试次数和计数器
+    # max attempts if grasp failed
     max_attempts = 3
     attempt_count = 0
 
     while not grasp_success and attempt_count < max_attempts:
         attempt_count += 1
-        print(f"\n尝试抓取 #{attempt_count}/{max_attempts}")
+        print(f"\nAttempt {attempt_count}/{max_attempts}")
         
         # Step 1: Collect point cloud
         print("Step 1: Starting point cloud collection...")
@@ -135,7 +134,7 @@ if __name__ == "__main__":
         # Step 3: Execute grasp (unless --no-grasp flag is set)
         grasp_executor = GraspExecution(sim, config, bbox_center, bbox_rotation_matrix)
         grasp_success, grasp_executor = grasp_executor.execute_complete_grasp(merged_points, True, args.object)
-        print(f"抓取尝试 #{attempt_count} 结果: {'成功' if grasp_success else '失败'}")
+        print(f"Grasp attempt #{attempt_count} result: {'Success' if grasp_success else 'Failed'}")
 
 
         if not grasp_success:
@@ -148,30 +147,29 @@ if __name__ == "__main__":
                         sim.step()
                         time.sleep(1/240.)
         
-        # 清理边界框可视化
+        # clear bounding box visualization
         if bbox is not None:
-            print("清理物体边界框可视化...")
+            print("Clearing object bounding box visualization...")
             bbox.clear_visualization()
             
-        # 清理所有用户调试线条和文本（包括坐标轴和标签）
-        # 这将移除所有的Pose 1和Pose 2坐标轴以及其他可视化元素
-        line_ids = list(range(100))  # 一个足够大的范围来覆盖所有可能的调试线条ID
+        # clear all user debug lines and texts (including axes and labels)
+        line_ids = list(range(200))  # a large range to cover all possible debug line IDs
         for line_id in line_ids:
             p.removeUserDebugItem(line_id)
 
-        print("已清理所有可视化元素")
+        print("All visualization elements have been cleared")
         if not grasp_success and attempt_count < max_attempts:
-            print(f"将在3秒后重试...")
-            time.sleep(3)  # 给一些时间让物理引擎稳定
+            print(f"Retrying in 3 seconds...")
+            time.sleep(3)  # give some time for the physics engine to stabilize
     
     if not grasp_success:
-        print(f"\n达到最大尝试次数 ({max_attempts})，抓取失败")
+        print(f"\nReached maximum attempts ({max_attempts}), grasp failed")
         input("\nPress Enter to close the simulation...")
         if sim is not None:
             sim.close()
         exit(0)
         
-    print("\n抓取成功！准备执行路径规划...")
+    print("\nGrasp successful! Preparing to execute path planning...")
     
 
 
@@ -184,9 +182,9 @@ if __name__ == "__main__":
             planning_type=args.planning_type,
             visualize=True,
             movement_speed_factor=args.speed_factor,
-            enable_replan=args.enable_replan,       # 添加动态重规划参数
-            replan_steps=args.replan_steps,          # 添加重规划步数参数
-            method="RRT*_PF_Plan"                      # 还可以选择"Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
+            enable_replan=args.enable_replan, 
+            replan_steps=args.replan_steps,
+            method="RRT*_PF_Plan" # can also choose "Potential_Plan","RRT*_Plan","Hard_Code","RRT*_PF_Plan" 
         )
 
     input("\nPress Enter to close the simulation...")
