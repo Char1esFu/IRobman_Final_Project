@@ -2,9 +2,7 @@ import numpy as np
 import pybullet as p
 import random
 
-from scipy.spatial import KDTree
-
-from typing import List, Tuple, Dict, Optional, Any, Callable
+from typing import List, Tuple, Any
 from src.ik_solver.ik_solver import DifferentialIKSolver
 
 

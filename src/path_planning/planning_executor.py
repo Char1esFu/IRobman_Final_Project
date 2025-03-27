@@ -1,7 +1,7 @@
 import numpy as np
 import pybullet as p
 import time
-from typing import Optional, Tuple, List, Any, Dict
+from typing import Any, Dict
 
 from src.path_planning.rrt_star import RRTStarPlanner
 from src.path_planning.rrt_star_cartesian import RRTStarCartesianPlanner
