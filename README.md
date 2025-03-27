@@ -17,9 +17,9 @@ sudo apt-get install uv
 # on Arch Linux
 sudo pacman -S uv
 
-# install dependencies(listed in requirements.txt)
+# install dependencies(listed in requirement.txt)
 uv sync
-uv pip install -r requirements.txt
+uv pip install -r requirement.txt
 ```
 
 ## Usage
