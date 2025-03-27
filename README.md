@@ -19,6 +19,7 @@ sudo pacman -S uv
 
 # install dependencies(listed in requirements.txt)
 uv sync
+uv pip install -r requirements.txt
 ```
 
 ## Usage
@@ -50,14 +51,14 @@ python3 main.py --object YcbPowerDrill
 ```shell
 
 ├── configs
-│   └── test_config.yaml # config file for your experiments (you can make your own)
-├── main.py # example runner file (you can add a bash script here as well)
+│   └── test_config.yaml
+├── main.py
 ├── README.md
 └── src
-    ├── objects.py # contains all objects and obstacle definitions
-    ├── robot.py # robot class
-    ├── simulation.py # simulation class
-    ├── utils.py # helpful utils
+    ├── objects.py
+    ├── robot.py
+    ├── simulation.py
+    ├── utils.py
     │ # new features below
     ├── bounding_box
     │   └── bounding_box.py
