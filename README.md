@@ -6,7 +6,7 @@ git clone https://github.com/Charles-CongFu/IRobman_Final_Project.git
 cd IRobman_Final_Project
 git checkout main
 
-# clone pybullet-object-models into the project
+# clone pybullet-object-models into the project folder
 git clone https://github.com/eleramp/pybullet-object-models.git
 
 # install dependencies
