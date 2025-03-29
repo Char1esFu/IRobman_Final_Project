@@ -61,3 +61,7 @@ Files:  `src/path_planning/planning_executor.py`, `src/path_planning/potential_f
 - Due to the need for static render from high camera, the final trajectory will be slow. 
 - Some objects will be stuck with the gripper even if it's set to open at the final stage. Since it's an issue from simulation engine, there's nothing we could do unfortunately. 
 - Grasp sampling is set to 2000, so it might be slow to test on other machines. 
+
+## Contributions: 
+- Cong Fu: point clouds collection, bounding box, ik solver, obstacle tracker, grasp containment metrics, global planning, project integration
+- Deepesh Padala: local planning, point cloud fusion, grasp mesh creation, grasp collision detection
