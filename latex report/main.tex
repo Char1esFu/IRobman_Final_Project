@@ -1,0 +1,175 @@
+%% This is file `DEMO-TUDaReport.tex' version 3.32 (2023/06/19),
+%% it is part of
+%% TUDa-CI -- Corporate Design for TU Darmstadt
+%% ----------------------------------------------------------------------------
+%%
+%%  Copyright (C) 2018--2023 by Marei Peischl <marei@peitex.de>
+%%
+%% ============================================================================
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3c
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%% http://www.latex-project.org/lppl.txt
+%% and version 1.3c or later is part of all distributions of LaTeX
+%% version 2008/05/04 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%%
+%% The Current Maintainers of this work are
+%%   Marei Peischl <tuda-ci@peitex.de>
+%%   Markus Lazanowski <latex@ce.tu-darmstadt.de>
+%%
+%% The development respository can be found at
+%% https://github.com/tudace/tuda_latex_templates
+%% Please use the issue tracker for feedback!
+%%
+%% If you need a compiled version of this document, have a look at
+%% http://mirror.ctan.org/macros/latex/contrib/tuda-ci/doc
+%% or at the documentation directory of this package (if installed)
+%% <path to your LaTeX distribution>/doc/latex/tuda-ci
+%% ============================================================================
+%%
+% !TeX program = lualatex
+%%
+\documentclass[
+	english,
+	accentcolor=11d,% Farbe für Hervorhebungen auf Basis der Deklarationen in den
+	type=intern,
+	marginpar=false,
+    logofile=media/PEARLTUDA.png
+	]{tudapub}
+\usepackage[ngerman, main=english]{babel}
+\usepackage[autostyle]{csquotes}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{url}
+
+% Define code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+}
+
+% Set paragraph spacing
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+%Formatierungen für Beispiele in diesem Dokument. Im Allgemeinen nicht notwendig!
+\let\file\texttt
+\let\code\texttt
+\let\pck\textsf
+\let\cls\textsf
+
+\begin{document}
+\title{Intelligent Robot Arm Manipulation\\Final Project Report}
+\author{Cong Fu, Deepesh Padala}
+% add date, otherwise the current date gets added
+\date{\today} % Ohne Angabe wird automatisch das heutige Datum eingefügt
+\maketitle
+\tableofcontents
+
+\section{Introduction}
+This report documents our final project on intelligent robot arm manipulation. The project consists of five main tasks: perception, control, grasping, localization \& tracking, and planning. Each task builds upon the previous one to create a complete robot manipulation system capable of perceiving objects, planning trajectories, avoiding obstacles, and successfully grasping objects.
+
+\section{Task 1: Perception}
+
+\noindent\textbf{Point Cloud}
+
+\noindent File: \code{src/point\_cloud/point\_cloud.py}
+
+The idea of this part is to capture the point cloud of the object and use it to create mesh and bounding box for grasping. First, we move the robot arm to a pre-defined position up high to detect the object by extracting its segmentation mask. 
+
+After point cloud of the object in world coordinate system is reconstructed from this image, we use the centroid of all the cloud points on xy plane as the x and y coordinates of the reference point for further arm movement, and the maximal z coordinate of cloud points + height offset as the z coordinate of the reference point.
+
+Then we define 4 poses for the robot arm to move to, where point clouds are extracted from image with 4 different directions. Here we use a simple trajectory interpolation in joint space for the movement, because there's no obstacle that needs to be considered.
+
+ICP algorithm is used to align the point clouds and get a complete point cloud of the object, albeit with holes for some objects. Point clouds are visualized when running main function. Therefore interactive visualization needs to be closed to continue.
+
+\vspace{0.5cm}
+\noindent\textbf{Bounding Box}
+
+\noindent File: \code{src/bounding\_box/bounding\_box.py}
+
+Since the objects are placed on the flat table, we use the point cloud of the object to create an oriented bounding box around z-axis. The z axis of the bounding box is parallel to z axis of the world coordinate system, while x and y axis of the bounding box are acquired by PCA of the point cloud on the xy plane. Visualization is also provided to see the bounding box in pybullet.
+
+\section{Task 2: Control}
+\noindent File: \code{src/ik\_solver/ik\_solver.py}
+
+Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet. Not that it will cause problems, but we explored the possibility of using shadow client to work around. 
+
+There are limitations, solving for long trajectory will result in large position and orientation error, which is why we use hard-coded trajectory in the first stage of planning. Details will be explained later.
+
+\section{Task 3: Grasping}
+Files: 
+\begin{itemize}
+\item \code{src/grasping/grasp\_execution.py}
+\item \code{src/grasping/grasp\_generation.py}
+\item \code{src/grasping/mesh.py}
+\end{itemize}
+
+First we create the mesh of the object and the gripper. A simplified gripper mesh is hand crafted in open3d by referring to Franka Emika Panda robot Product Manual.
+Link: \url{https://download.franka.de/documents/Product\%20Manual\%20Franka\%20Hand_R50010_1.1_EN.pdf}
+
+Then we sample the grasp positions uniformly within the bounding box. For the sampling of grasp orientation, the gripper is forced to aim downwards and calculate length and width of the bounding box. The gripper width (direction of opening and closing of gripper fingers) during sample is always parallel to the shorter side of the two, therefore grasping will be easier and more consistent.
+
+Next, we check the collision between the gripper and the object. Note that YcbPowerDrill is a bit special, because it's not a convex object, and much more complicated compared to other objects. Mesh quality of this particular object has a lot to be desired. And it caused the collision detection to fail (every grasp pose is detected as collision). So we use point cloud to detect collision for this object. All the other objects are detected by mesh collision detection.
+
+After collision detection, we check the grasp containment. 2 ray planes are created along the directions of finger thickness. Each ray plane has 50 rays from root to the tip of the fingers. The criteria consist of several parts:
+
+\begin{itemize}
+\item At least 1 ray should intersect with the object for each ray plane as safe guard.
+\item Count intersection ratio of all rays as quality metric.
+\item Each intersected ray theoretically should have 2 intersections with the object. But for mesh collision detection, the rays will only yield the first (closet) intersection point. Therefore, we do ray casting bidirectionally to get the distance of intersection point to corresponding ray starting point. Shorter distance gives higher score. This criterion encourages the gripper to be closer to the thickest part of the object, which is really beneficial for grasping convex objects in the direction of gripper thickness.
+\item In the direction of gripper width, distance between center of the object and the center of the gripper on xy plane is calculated. Closer distance gives higher score. This criterion avoids grasping poses where one finger is too close to the object, which could cause collision due to precision error. After all, the grasping poses are realized in open3d, and the simplified grasp mesh is a bit different from the original end effector in pybullet.
+\end{itemize}
+
+Then we weight each criterion and sum them up to get the final score. The grasping pose with the highest score is selected as the final grasping pose. To avoid unwanted behaviour, we name the final grasping pose as pose 2, and define another position as pose 1, which is acquired by pure translation along its own -z axis (no rotation). In this case we move the arm from the state at the end of point cloud collection to pose 1 with simple interpolation in joint space, and then interpolate in cartesian space and solve IK for movement between pose 1 and pose 2, therefore straight trajectory can be guaranteed during actual grasping.
+
+Finally we lift the object slowly to a predefined position and check if the object is actually grasped by calculating the actual distance between two fingers. Gripper finger's behaviour is achieved by position control with a specified torque applied. If the object somehow slips or falls down to the table, we iterate the perception part with point cloud and grasp sampling all over again as a fail safe. 3 chances will be given.
+
+\section{Task 4: Localization \& Tracking}
+File: \code{src/obstacle\_tracker/obstacle\_tracker.py}
+
+The high camera is used to detect the object by extracting the segmentation masks of the two red ball obstacles. Then we find the centroid of the corresponding mask, reconstruct the 3D position of the object in the world coordinate system. Radius is compensated along the direction from camera center to the centroid of the mask for each sphere to get their centers.
+
+The states of the two spheres are returned. Additional boolean flag is used to check if the two spheres are away from the tray, which is used during final planning stage.
+
+\section{Task 5: Planning}
+Files: 
+\begin{itemize}
+\item \code{src/path\_planning/planning\_executor.py}
+\item \code{src/path\_planning/potential\_field.py}
+\item \code{src/path\_planning/rrt\_star\_cartesian.py}
+\item \code{src/path\_planning/rrt\_star.py}
+\item \code{src/path\_planning/simple\_planning.py}
+\end{itemize}
+
+Due to the aforementioned limitation of IK solver, solving for the end of long trajectory has some unexpected behaviours. The end of the trajectory would deviate from desired position. So we first move the gripper to a hard-coded pose. And then plan the final movement with RRT* as global planner and artificial potential field as local planner. We've also achieved a planner with pure hard-coded position as a comparison.
+
+RRT* is achieved in joint space, so that the initial planning will also avoid collision between the obstacles and each joint of the robot arm. The global trajectory will provide an attractive force to the end effector during local planning. In this case potential field method considers total gradient from 3 types of sources: repulsive force from 2 obstacles, attractive force from end position, and attractive force from the trajectory. The repulsive force application radius has been increased so that larger objects won't collide with red ball obstacles as well.
+
+Once the end effector reaches goal position up high, it'll wait until the obstacle balls are away from the tray before opening the gripper. Right now the threshold is 'x < 0.03' for larger obstacle and 'y < 0.03' for smaller obstacle, meaning the balls need to "move pass" the robot base.
+
+\section{Notes and Limitations}
+
+Due to the need for static render from high camera, the final trajectory will be slow. Some objects will be stuck with the gripper even if it's set to open at the final stage. Since it's an issue from simulation engine, there's nothing we could do unfortunately.
+
+Grasp sampling is set to 2000, so it might be slow to test on other machines.
+
+\section{Contributions}
+
+\noindent\textbf{Cong Fu:} point clouds collection, bounding box, ik solver, obstacle tracker, grasp containment metrics, global planning, project integration
+
+\noindent\textbf{Deepesh Padala:} local planning, point cloud fusion, grasp mesh creation, grasp collision detection
+
+\end{document}
