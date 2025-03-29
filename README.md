@@ -1,10 +1,9 @@
 ## installation guide
 
 ```bash
-# optional: if compressed folder for the project is not available
+# download the zip file or clone the repository
 git clone https://github.com/Charles-CongFu/IRobman_Final_Project.git
 cd IRobman_Final_Project
-git checkout main
 
 # clone pybullet-object-models into the project folder
 git clone https://github.com/eleramp/pybullet-object-models.git
