@@ -77,7 +77,6 @@ if __name__ == "__main__":
                         help='Select path planning type: joint (joint space) or cartesian (Cartesian space)')
     parser.add_argument('--speed-factor', type=float, default=1.0,
                         help='Movement speed factor for trajectory execution (default=1.0, higher=slower)')
-    # 新增动态重规划相关参数
     parser.add_argument('--enable-replan', action='store_true',
                         help='Enable dynamic replanning for moving obstacles')
     parser.add_argument('--replan-steps', type=int, default=10,

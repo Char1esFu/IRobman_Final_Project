@@ -55,7 +55,7 @@ class PlanningExecutor:
         success: Whether planning was successful
         """
         print(f"\nStep 4: {'Cartesian space' if planning_type == 'cartesian' else 'Joint space'} path planning...")
-        print(f"动态重规划: {'启用' if enable_replan else '禁用'}")
+        print(f"Dynamic replanning: {'Enabled' if enable_replan else 'Disabled'}")
         
         # Get robot's current state (position after grasping) as starting point
         joint_indices = self.robot.arm_idx
@@ -125,11 +125,11 @@ class PlanningExecutor:
                     for _ in range(1):
                         self.sim.step()
                         time.sleep(1/240.)
-            # 更新当前位置
+            # update current position
             current_joint_pos = self.robot.get_joint_positions()
 
                 
-            print("\n轨迹执行完成, \n目标位置到达!")
+            print("\nTrajectory execution completed, \nTarget position reached!")
             # Release object
             print("\nReleasing object...")
             self._release_object()
@@ -150,15 +150,15 @@ class PlanningExecutor:
             if visualize:
                 self._visualize_goal_position(goal_pos)
             
-            # 计算目标关节位置 (仅在关节空间规划中需要)
+            # calculate target joint position (only needed in joint space planning)
             if planning_type == 'joint':
                 goal_joint_pos = self.ik_solver.solve(
                     goal_pos, goal_orn, self.robot.get_joint_positions(), max_iters=50, tolerance=0.001
                 )
             
-            # 如果启用了重规划，我们将跟踪当前位置和目标位置
+            # if dynamic replanning is enabled, we will track the current position and target position
             if enable_replan:
-                # 初始创建规划器 (后续会在循环中重用)
+                # initialize planner (will be reused in the loop)
                 if planning_type == 'cartesian':
                     planner = RRTStarCartesianPlanner(
                         robot_id=self.robot.id,
@@ -167,7 +167,7 @@ class PlanningExecutor:
                         upper_limits=self.robot.upper_limits,
                         ee_link_index=self.robot.ee_idx,
                         obstacle_tracker=self.obstacle_tracker,
-                        max_iterations=500,  # 为重规划减少迭代次数以加快速度
+                        max_iterations=500,  # reduce iterations for replanning to speed up
                         step_size=0.05,
                         goal_sample_rate=0.1,
                         search_radius=0.1,
@@ -184,10 +184,10 @@ class PlanningExecutor:
                         goal_threshold=0.05
                     )
                 
-                # 主循环：执行路径、监测障碍物和重规划
-                print("\n开始执行带有动态重规划的轨迹...")
+                # main loop: execute path, monitor obstacles and replan
+                print("\nStarting trajectory execution with dynamic replanning...")
                 
-                # 调整执行速度参数
+                # adjust execution speed parameters
                 steps = max(1, int(10 * movement_speed_factor))
                 delay = (1/240.0) * movement_speed_factor
                 
@@ -195,55 +195,55 @@ class PlanningExecutor:
                 goal_reached = False
                 
                 while not goal_reached:
-                    # 更新障碍物位置
+                    # update obstacle positions
                     rgb_static, depth_static, seg_static = self.sim.get_static_renders()
                     detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
                     tracked_positions = self.obstacle_tracker.update(detections)
                     
-                    # # 可视化障碍物边界框
+                    # # visualize obstacle bounding boxes
                     # if visualize:
                     #     self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
-                    #     print(f"检测到 {len(tracked_positions)} 个障碍物")
+                    #     print(f"Detected {len(tracked_positions)} obstacles")
                     
-                    # 从当前位置规划到目标
-                    print("\n重新规划路径...")
+                    # replan from current position to target
+                    print("\nReplanning path...")
                     if planning_type == 'cartesian':
                         path, cost = planner.plan(current_joint_pos, goal_pos, goal_orn)
                     else:  # joint space planning
                         path, cost = planner.plan(current_joint_pos, goal_joint_pos)
                     
                     if not path:
-                        print("无法找到有效路径，尝试再次规划...")
-                        time.sleep(0.5)  # 稍等一下再尝试
+                        print("No valid path found, trying again...")
+                        time.sleep(0.5)  # wait a moment and try again
                         continue
                     
-                    print(f"找到路径! 代价: {cost:.4f}, 路径点数量: {len(path)}")
+                    print(f"Path found! Cost: {cost:.4f}, Number of path points: {len(path)}")
                     
-                    # 可视化轨迹
+                    # visualize trajectory
                     if visualize and planner:
                         self._visualize_path(planner, path)
                     
-                    # 生成平滑轨迹
-                    smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=5)  # 减少平滑步数以提高响应速度
+                    # generate smooth trajectory
+                    smooth_path = planner.generate_smooth_trajectory(path, smoothing_steps=5)
                     
-                    # 只执行轨迹的一部分，然后重新规划
+                    # execute only a part of the trajectory, then replan
                     subpath = smooth_path[:min(replan_steps, len(smooth_path))]
                     
-                    # 执行子轨迹
+                    # execute a part of the trajectory, then replan
                     for joint_pos in subpath:
-                        # 设置关节位置
+                        # set joint position
                         for i, idx in enumerate(joint_indices):
                             p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, joint_pos[i])
                         
-                        # 执行多个仿真步骤
+                        # execute multiple simulation steps
                         for _ in range(steps):
                             self.sim.step()
                             time.sleep(delay)
                         
-                        # 更新当前位置
+                        # update current position
                         current_joint_pos = self.robot.get_joint_positions()
                     
-                    # 检查是否到达目标
+                    # check if target is reached
                     if planning_type == 'joint':
                         dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
                         goal_reached = dist_to_goal < planner.goal_threshold
@@ -253,12 +253,12 @@ class PlanningExecutor:
                         goal_reached = dist_to_goal < 0.03  # 厘米级精度
                     
                     if goal_reached:
-                        print("\n目标位置到达!")
+                        print("\nTarget position reached!")
                 
-                print("\n轨迹执行完成")
+                print("\nTrajectory execution completed")
                 
             else:
-                # 不使用重规划的情况下，使用原始方法执行一次性规划
+                # without dynamic replanning
                 # Use static camera to get obstacle positions
                 rgb_static, depth_static, seg_static = self.sim.get_static_renders()
                 detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
@@ -269,7 +269,7 @@ class PlanningExecutor:
                     bounding_box_ids = self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
                     print(f"Detected {len(tracked_positions)} obstacles")
                 
-                # 获取当前关节位置
+                # get current joint position
                 start_joint_pos = self.robot.get_joint_positions()
                 
                 # Choose and use appropriate planner based on planning type
@@ -321,17 +321,17 @@ class PlanningExecutor:
                 
                 # Execute trajectory
                 print("\nExecuting trajectory...")
-                # 调整步数和延迟基于速度因子
-                steps = int(10 * movement_speed_factor)  # 默认5步，乘以速度因子
-                delay = (1/240.0) * movement_speed_factor  # 默认延迟，乘以速度因子
+                # adjust steps and delay based on speed factor
+                steps = int(10 * movement_speed_factor)
+                delay = (1/240.0) * movement_speed_factor
                 self._execute_trajectory(joint_indices, smooth_path, steps=steps, delay=delay)
                 
                 print("\nPath execution completed")
 
-            # 更新当前位置
+            # update current position
             current_joint_pos = self.robot.get_joint_positions()
             
-            # 检查是否到达目标
+            # check if target is reached
             if planning_type == 'joint':
                 dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
                 goal_reached = dist_to_goal < planner.goal_threshold
@@ -341,9 +341,9 @@ class PlanningExecutor:
                 goal_reached = dist_to_goal < 0.03  # 厘米级精度
             
             if goal_reached:
-                print("\n目标位置到达!")
+                print("\nTarget position reached!")
                 
-            print("\n轨迹执行完成")
+            print("\nTrajectory execution completed")
             # Release object
             print("\nReleasing object...")
             self._release_object()
@@ -374,33 +374,33 @@ class PlanningExecutor:
             #             self.sim.step()
             #             time.sleep(1/240.)
             # current_joint_pos = self.robot.get_joint_positions()
-            # ----------------- 1) 获取目标信息 -----------------
+            # ----------------- 1) Get target information -----------------
             goal_pos = np.array([0.54939217, 0.46558996, 2.14602761])
-            # 可视化目标位置（如需要）
+            # visualize target position (if needed)
             if visualize:
                 self._visualize_goal_position(goal_pos)
             
         
             goal_joint_pos = [0.7, 0.4099985502678034, 0.0026639666712291836, -0.67143263171620764, 0.0, 3.14*0.8, 2.9671]
             
-            # ----------------- 2) 初始化势场规划器 -----------------
-            print("\n初始化势场规划器用于实时避障...")
+            # ----------------- 2) Initialize potential field planner -----------------
+            print("\nInitialize potential field planner for real-time obstacle avoidance...")
             
             pf_planner = PotentialFieldPlanner(
                 robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
-                max_iterations=200,       # 每次规划迭代次数不需要太多
-                step_size=0.01,           # 势场下降步长
-                d0=0.5,                  # 排斥势生效距离
-                K_att=1.0,                # 吸引势增益
-                K_rep=100.0,                # 排斥势增益（加大以更好避障）
-                goal_threshold=0.05,      # 到达目标的阈值
+                max_iterations=200,
+                step_size=0.01,           # potential field descent step
+                d0=0.5,                  # repulsive force effective distance
+                K_att=1.0,                # attractive force gain
+                K_rep=100.0,                # repulsive force gain
+                goal_threshold=0.05,      # target threshold
                 collision_check_step=0.2,
-                reference_path_weight=0.7  # 全局路径的引力权重
+                reference_path_weight=0.7  # global path attractive force weight
             )
 
-            # ----------------- 3) 动态重规划主循环 -----------------
-            print("\n开始执行基于 Potential Field 的动态重规划...")
+            # ----------------- 3) Dynamic replanning main loop -----------------
+            print("\nStart executing dynamic replanning based on Potential Field...")
             steps = max(1, int(10 * movement_speed_factor))
             delay = (1 / 240.0) * movement_speed_factor
             
@@ -408,44 +408,41 @@ class PlanningExecutor:
             goal_reached = False
 
             while not goal_reached:
-                # (a) 获取当前环境的图像并更新障碍物
+                # Get current environment image and update obstacles
                 rgb_static, depth_static, seg_static = self.sim.get_static_renders()
                 detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
                 tracked_positions = self.obstacle_tracker.update(detections)
 
-                # (b) 使用势场法重新规划，考虑全局路径引力
-                print("\n使用势场法进行局部避障规划...")
+                # Use potential field method to replan, considering global path attractive force
+                print("\nUse potential field method to local obstacle avoidance planning...")
                 
-                # 修改：使用单步势场法规划，而不是生成完整路径
-                # 这样更适合动态环境，只关注当前最佳移动方向
                 next_joint_pos, local_cost = pf_planner.plan_next_step(current_joint_pos, goal_joint_pos, reference = False)
 
-                print(f"计算下一步避障方向, 目标距离: {local_cost:.4f}")
+                print(f"Calculate next obstacle avoidance direction, target distance: {local_cost:.4f}")
                 
-                # 执行单步移动
                 joint_indices = self.robot.arm_idx
 
-                # 设置关节位置
+                # Set joint position
                 for i, idx in enumerate(joint_indices):
                     p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, next_joint_pos[i])
 
-                # 执行若干仿真步骤
+                # Execute several simulation steps
                 for _ in range(steps):
                     self.sim.step()
                     time.sleep(delay)
             
-                # 更新当前关节位置
+                # Update current joint position
                 current_joint_pos = self.robot.get_joint_positions()
 
-                # (f) 检查是否到达目标
+                # Check if target is reached
                 
                 dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
-                goal_reached = dist_to_goal < 0.2  # 或与 planner.goal_threshold 一致
+                goal_reached = dist_to_goal < 0.2  # or consistent with planner.goal_threshold
 
                 if goal_reached:
-                    print("\n目标位置到达!")
+                    print("\nTarget position reached!")
             
-            print("\n基于 Potential Field 的轨迹执行完成。")
+            print("\nPotential field trajectory execution completed.")
 
             ball_is_far = False
             while(not ball_is_far):
@@ -464,11 +461,11 @@ class PlanningExecutor:
                     for _ in range(1):
                         self.sim.step()
                         time.sleep(1/240.)
-            # 更新当前位置
+            # Update current position
             current_joint_pos = self.robot.get_joint_positions()
 
                 
-            print("\n轨迹执行完成, \n目标位置到达!")
+            print("\nTrajectory execution completed, \nTarget position reached!")
             # Release object
             print("\nReleasing object...")
             self._release_object()
@@ -501,7 +498,7 @@ class PlanningExecutor:
 
             # ----------------- 1) 获取目标位置 -----------------
             goal_pos = np.array([0.54939217, 0.46558996, 2.14602761])
-            # 可视化目标位置（如需要）
+            # Visualize target position (if needed)
             if visualize:
                 self._visualize_goal_position(goal_pos)
             
@@ -511,7 +508,7 @@ class PlanningExecutor:
             # ----------------- 2) 使用RRT*生成全局参考路径 -----------------
             print("\n使用RRT*生成全局参考路径...")
             
-            # 初始化RRT*规划器
+            # Initialize RRT* planner
             rrt_planner = RRTStarPlanner(
                 robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
@@ -522,54 +519,54 @@ class PlanningExecutor:
                 goal_threshold=0.05
             )
             
-            # 使用静态相机获取障碍物位置
+            # Get obstacle positions using static camera
             rgb_static, depth_static, seg_static = self.sim.get_static_renders()
             detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
             tracked_positions = self.obstacle_tracker.update(detections)
             
-            # 可视化障碍物边界框
+            # Visualize obstacle bounding boxes
             if visualize:
                 self.obstacle_tracker.visualize_tracking_3d(tracked_positions)
-                print(f"检测到 {len(tracked_positions)} 个障碍物")
+                print(f"Detected {len(tracked_positions)} obstacles")
             
-            # 使用RRT*规划全局路径
+            # Use RRT* to plan global path
             global_path, global_cost = rrt_planner.plan(start_joint_pos, goal_joint_pos)
-            # 生成平滑轨迹
+            # Generate smooth trajectory
             global_path = rrt_planner.generate_smooth_trajectory(global_path, smoothing_steps=5) 
             if not global_path:
-                print("无法生成全局RRT*路径，无法继续")
+                print("Cannot generate global RRT* path, cannot continue")
                 return False
                 
-            print(f"成功生成全局参考路径! 路径代价: {global_cost:.4f}, 路径点数量: {len(global_path)}")
+            print(f"Successfully generated global reference path! Path cost: {global_cost:.4f}, Path point number: {len(global_path)}")
             
-            # 可视化全局参考路径
+            # Visualize global reference path
             if visualize:
                 self._visualize_path(rrt_planner, global_path)
-                print("全局参考路径已可视化（绿色线条）")
+                print("Global reference path visualized (green lines)")
             
-            # ----------------- 3) 初始化势场规划器 -----------------
-            print("\n初始化势场规划器用于实时避障...")
+            # ----------------- 3) Initialize potential field planner -----------------
+            print("\nInitialize potential field planner for real-time obstacle avoidance...")
             
             pf_planner = PotentialFieldPlanner(
                 robot=self.robot,
                 obstacle_tracker=self.obstacle_tracker,
-                max_iterations=200,       # 每次规划迭代次数不需要太多
-                step_size=0.01,           # 势场下降步长
-                d0=0.25,                  # 排斥势生效距离
-                K_att=5.0,                # 吸引势增益
-                K_rep=100.0,                # 排斥势增益（加大以更好避障）
-                goal_threshold=0.2,      # 到达目标的阈值
+                max_iterations=200,
+                step_size=0.01,
+                d0=0.25,
+                K_att=5.0,
+                K_rep=100.0,
+                goal_threshold=0.2,
                 collision_check_step=0.05,
-                reference_path_weight=0.7  # 全局路径的引力权重
+                reference_path_weight=0.7
             )
             
-            # 设置全局参考路径
+            # Set global reference path
             pf_planner.set_reference_path(global_path)
             
-            # ----------------- 4) 执行动态避障主循环 -----------------
-            print("\n开始执行基于RRT*-PF的动态避障...")
+            # ----------------- 4) Execute dynamic obstacle avoidance main loop -----------------
+            print("\nStart executing dynamic obstacle avoidance based on RRT*-PF...")
             
-            # 调整执行速度参数
+            # Adjust execution speed parameters
             steps = max(1, int( 10 * movement_speed_factor))
             delay = (1/240.0) * movement_speed_factor
 
@@ -578,43 +575,40 @@ class PlanningExecutor:
             goal_reached = False
             
             while not goal_reached:
-                # (a) 获取当前环境并更新障碍物
+                # Get current environment and update obstacles
                 rgb_static, depth_static, seg_static = self.sim.get_static_renders()
                 detections = self.obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
                 tracked_positions = self.obstacle_tracker.update(detections)
                 
-                # (b) 使用势场法重新规划，考虑全局路径引力
-                print("\n使用势场法进行局部避障规划...")
+                # Use potential field method to replan, considering global path attractive force
+                print("\nUse potential field method to local obstacle avoidance planning...")
                 
-                # 修改：使用单步势场法规划，而不是生成完整路径
-                # 这样更适合动态环境，只关注当前最佳移动方向
                 next_joint_pos, local_cost = pf_planner.plan_next_step(current_joint_pos, goal_joint_pos, reference = True)
                 
-                print(f"计算下一步避障方向, 目标距离: {local_cost:.4f}")
+                print(f"Calculate next obstacle avoidance direction, target distance: {local_cost:.4f}")
                 
-                # 执行单步移动
                 joint_indices = self.robot.arm_idx
                 
-                # 设置关节位置
+                # Set joint position
                 for i, idx in enumerate(joint_indices):
                     p.setJointMotorControl2(self.robot.id, idx, p.POSITION_CONTROL, next_joint_pos[i])
                 
-                # 执行仿真步骤
+                # Execute simulation steps
                 for _ in range(steps):
                     self.sim.step()
                     time.sleep(delay)
                 
-                # 更新当前关节位置
+                # Update current joint position
                 current_joint_pos = self.robot.get_joint_positions()
                 
-                # (c) 检查是否到达目标
+                # Check if target is reached
                 dist_to_goal = np.linalg.norm(np.array(current_joint_pos) - np.array(goal_joint_pos))
                 goal_reached = dist_to_goal < pf_planner.goal_threshold
                 
                 if goal_reached:
-                    print("\n目标位置到达!")
+                    print("\nTarget position reached!")
             
-            print("\nRRT*-PF动态避障轨迹执行完成")
+            print("\nRRT*-PF dynamic obstacle avoidance trajectory execution completed")
 
             ball_is_far = False
             while(not ball_is_far):
@@ -633,11 +627,11 @@ class PlanningExecutor:
                     for _ in range(1):
                         self.sim.step()
                         time.sleep(1/240.)
-            # 更新当前位置
+            # Update current position
             current_joint_pos = self.robot.get_joint_positions()
 
                 
-            print("\n轨迹执行完成, \n目标位置到达!")
+            print("\nTrajectory execution completed, \nTarget position reached!")
             # Release object
             print("\nReleasing object...")
             self._release_object()

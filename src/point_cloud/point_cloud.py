@@ -11,28 +11,28 @@ from src.path_planning.simple_planning import SimpleTrajectoryPlanner
 
 def visualize_depth_image(depth_image, highlight_point=None, mask=None):
     """
-    可视化深度图，并在指定位置绘制一个点
+    Visualize depth image, and draw a point at the specified position
     
-    参数:
-    - depth_image: 深度图 (H, W)，单位: 米
-    - highlight_point: (x, y)，需要高亮的像素坐标 (可选)
-    - mask: (H, W) 布尔数组，仅显示目标区域（可选）
+    Parameters:
+    - depth_image: Depth image (H, W), unit: meters
+    - highlight_point: (x, y), pixel coordinates to highlight (optional)
+    - mask: (H, W) boolean array, only show target area (optional)
     """
     plt.figure(figsize=(8, 6))
 
-    # 归一化深度值，使可视化更清晰
+    # Normalize depth values, making visualization clearer
     depth_vis = np.copy(depth_image)
-    depth_vis[depth_vis == 0] = np.nan  # 避免 0 值干扰颜色映射
+    depth_vis[depth_vis == 0] = np.nan  # Avoid 0 values interfering with color mapping
 
-    # 使用不同颜色映射显示深度图
+    # Use different color mapping to display depth image
     plt.imshow(depth_vis, cmap='jet', interpolation='nearest')
     plt.colorbar(label='Depth (m)')
 
-    # 可选：绘制目标区域的 mask
+    # Optional: Draw mask of target area
     if mask is not None:
         plt.imshow(np.where(mask, depth_vis, np.nan), cmap='jet', alpha=0.5)
 
-    # 可选：绘制高亮点
+    # Optional: Draw highlight point
     if highlight_point is not None:
         x, y = highlight_point
         plt.scatter(x, y, color='red', s=100, edgecolors='black', label="Highlighted Point")

@@ -44,86 +44,86 @@ class PotentialFieldPlanner:
         self.obstacle_tracker = obstacle_tracker
         self.max_iterations = max_iterations
         self.step_size = step_size
-        self.d0 = d0  # 障碍物影响距离
-        self.K_att = K_att  # 吸引势场增益
-        self.K_rep = K_rep  # 排斥势场增益
+        self.d0 = d0
+        self.K_att = K_att
+        self.K_rep = K_rep
         self.goal_threshold = goal_threshold
         self.collision_check_step = collision_check_step
         self.reference_path_weight = reference_path_weight
         
         self.dimension = len(robot.arm_idx)
         
-        # 可视化线条
+        # Visualization lines
         self.debug_lines = []
         
-        # 存储可能的全局参考轨迹
+        # Store possible global reference trajectory
         self.reference_path = None
     
     def _get_current_ee_pose(self, joint_positions: List[float]) -> Tuple[np.ndarray, np.ndarray]:
-        """获取指定关节位置的末端执行器姿态
+        """Get the end effector pose at specified joint positions
         
         Args:
-            joint_positions: 关节位置
+            joint_positions: Joint positions
             
         Returns:
-            末端执行器位置和方向的元组
+            Tuple of end effector position and orientation
         """
-        # 保存当前状态
+        # Save current state
         current_states = []
         for i in self.robot.arm_idx:
             current_states.append(p.getJointState(self.robot.id, i)[0])
             
-        # 设置关节位置
+        # Set joint positions
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, joint_positions[i])
             
-        # 获取末端执行器姿态
+        # Get end effector pose
         ee_state = p.getLinkState(self.robot.id, self.robot.ee_idx)
         ee_pos = np.array(ee_state[0])
         ee_orn = np.array(ee_state[1])
         
-        # 恢复原始状态
+        # Restore original state
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, current_states[i])
             
         return ee_pos, ee_orn
     
     def _is_collision_free(self, joint_pos: List[float]) -> bool:
-        """检查关节位置是否无碰撞
+        """Check if joint positions are collision free
         
         Args:
-            joint_pos: 要检查的关节位置
+            joint_pos: Joint positions to check
             
         Returns:
-            如果无碰撞，则为True，否则为False
+            True if collision free, False otherwise
         """
-        # 获取末端执行器位置和方向
+        # Get end effector position and orientation
         ee_pos, _ = self._get_current_ee_pose(joint_pos)
         
-        # 获取要检查的机器人链接位置
+        # Get robot links positions to check
         links_to_check = self.robot.arm_idx + [self.robot.ee_idx]
         
-        # 保存当前状态
+        # Save current state
         current_states = []
         for i in self.robot.arm_idx:
             current_states.append(p.getJointState(self.robot.id, i)[0])
             
-        # 设置关节位置
+        # Set joint positions
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, joint_pos[i])
         
-        # 检查障碍物碰撞
+        # Check obstacle collision
         collision = False
         
-        # 从跟踪器获取障碍物状态
+        # Get obstacle states
         obstacle_states = self.obstacle_tracker.get_all_obstacle_states()
         if obstacle_states is None or len(obstacle_states) == 0:
-            # 恢复原始状态
+            # Restore original state
             for i, idx in enumerate(self.robot.arm_idx):
                 p.resetJointState(self.robot.id, idx, current_states[i])
-            return True  # 无障碍物，无碰撞
+            return True  # No obstacles, no collision
         
-        # 检查每个链接与每个障碍物的碰撞
+        # Check collision between each link and each obstacle
         for link_idx in links_to_check:
             link_state = p.getLinkState(self.robot.id, link_idx)
             link_pos = np.array(link_state[0])
@@ -132,15 +132,15 @@ class PotentialFieldPlanner:
                 if obstacle is None:
                     continue
                 
-                # 简单的球体碰撞检查
+                # Simple sphere collision check
                 obstacle_pos = obstacle['position']
                 obstacle_radius = obstacle['radius']
                 
-                # 链接与障碍物中心的距离
+                # Distance between link and obstacle center
                 dist = np.linalg.norm(link_pos - obstacle_pos)
                 
-                # 将机器人链接近似为点（简化）
-                # 添加小的安全边距（0.05m）
+                # Approximate robot links as points (simplified)
+                # Add small safety margin (0.05m)
                 if dist < obstacle_radius + 0.05:
                     collision = True
                     break
@@ -148,60 +148,60 @@ class PotentialFieldPlanner:
             if collision:
                 break
                 
-        # 恢复原始状态
+        # Restore original state
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, current_states[i])
             
         return not collision
     
     def _distance(self, q1: List[float], q2: List[float]) -> float:
-        """计算两个关节配置之间的距离
+        """Calculate distance between two joint configurations
         
         Args:
-            q1: 第一个关节配置
-            q2: 第二个关节配置
+            q1: First joint configuration
+            q2: Second joint configuration
             
         Returns:
-            关节空间中的欧几里得距离
+            Euclidean distance in joint space
         """
         return np.linalg.norm(np.array(q1) - np.array(q2))
     
 
     
     def _attractive_gradient(self, q: np.ndarray, q_goal: np.ndarray) -> np.ndarray:
-        """计算吸引势能梯度
+        """Calculate attractive potential gradient
         
         Args:
-            q: 当前关节配置
-            q_goal: 目标关节配置
+            q: Current joint configuration
+            q_goal: Goal joint configuration
             
         Returns:
-            吸引势能梯度（指向目标）
+            Attractive potential gradient (pointing to goal)
         """
         return self.K_att * (q - q_goal)
     
     def _repulsive_potential(self, q: np.ndarray) -> float:
-        """计算排斥势能
+        """Calculate repulsive potential
         
         Args:
-            q: 当前关节配置
+            q: Current joint configuration
             
         Returns:
-            排斥势能值
+            Repulsive potential value
         """
-        # 保存当前状态
+        # Save current state
         current_states = []
         for i in self.robot.arm_idx:
             current_states.append(p.getJointState(self.robot.id, i)[0])
             
-        # 设置关节位置
+        # Set joint positions
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, q[i])
         
-        # 要检查的链接
+        # Links to check
         links_to_check = self.robot.arm_idx + [self.robot.ee_idx]
         
-        # 从跟踪器获取障碍物状态
+        # Get obstacle states
         obstacle_states = self.obstacle_tracker.get_all_obstacle_states()
         
         potential = 0.0
@@ -218,35 +218,35 @@ class PotentialFieldPlanner:
                     obstacle_pos = obstacle['position']
                     obstacle_radius = obstacle['radius']
                     
-                    # 链接与障碍物中心的距离
+                    # Distance between link and obstacle center
                     dist = np.linalg.norm(link_pos - obstacle_pos) - obstacle_radius
                     
-                    # 如果在影响范围内，计算排斥势
+                    # If within influence range, calculate repulsive potential
                     if dist < self.d0:
-                        if dist < 0.01:  # 防止除以非常小的数
+                        if dist < 0.01:  # Prevent division by very small number
                             dist = 0.01
                         
-                        # 排斥势公式: 0.5 * K_rep * (1/dist - 1/d0)^2
+                        # Repulsive potential formula: 0.5 * K_rep * (1/dist - 1/d0)^2
                         potential += 0.5 * self.K_rep * ((1.0 / dist) - (1.0 / self.d0))**2
         
-        # 恢复原始状态
+        # Restore original state
         for i, idx in enumerate(self.robot.arm_idx):
             p.resetJointState(self.robot.id, idx, current_states[i])
             
         return potential
     
     def _repulsive_gradient(self, q: np.ndarray) -> np.ndarray:
-        """计算排斥势能梯度
+        """Calculate repulsive potential gradient
         
         Args:
-            q: 当前关节配置
+            q: Current joint configuration
             
         Returns:
-            排斥势能梯度（远离障碍物）
+            Repulsive potential gradient (pointing away from obstacles)
         """
-        # 数值微分计算梯度
+        # Numerical differentiation to calculate gradient
         grad = np.zeros(self.dimension)
-        epsilon = 1e-3  # 小的扰动
+        epsilon = 1e-3  # Small perturbation
         
         for i in range(self.dimension):
             q_plus = q.copy()
@@ -255,95 +255,95 @@ class PotentialFieldPlanner:
             q_minus = q.copy()
             q_minus[i] -= epsilon
             
-            # 中心差分
+            # Central difference
             grad[i] = (self._repulsive_potential(q_plus) - self._repulsive_potential(q_minus)) / (2 * epsilon)
         
         return grad
     
     def _reference_path_gradient(self, q: np.ndarray) -> np.ndarray:
-        """计算参考路径的梯度（引导机器人跟随RRT*全局路径）
+        """Calculate reference path gradient (guide robot to follow RRT* global path)
         
         Args:
-            q: 当前关节配置
+            q: Current joint configuration
             
         Returns:
-            参考路径梯度
+            Reference path gradient
         """
         if self.reference_path is None or len(self.reference_path) < 2:
             return np.zeros(self.dimension)
         
-        # 找到参考路径上最近的点
+        # Find the nearest point on the reference path
         distances = [self._distance(q, np.array(p)) for p in self.reference_path]
         min_idx = np.argmin(distances)
         
-        # 如果已经是最后一点，指向最后一点
+        # If already the last point, point to the last point
         if min_idx == len(self.reference_path) - 1:
             closest_point = np.array(self.reference_path[min_idx])
             return self.reference_path_weight * self.K_att * (q - closest_point)
         
-        # 否则，指向下一个路径点
+        # Otherwise, point to the next path point
         next_point = np.array(self.reference_path[min_idx + 1])
         return self.reference_path_weight * self.K_att * (q - next_point)
     
     def _total_gradient(self, q: np.ndarray, q_goal: np.ndarray ,reference) -> np.ndarray:
-        """计算总梯度（吸引 + 排斥 + 参考路径）
+        """Calculate total gradient (attractive + repulsive + reference path)
         
         Args:
-            q: 当前关节配置
-            q_goal: 目标关节配置
+            q: Current joint configuration
+            q_goal: Goal joint configuration
             
         Returns:
-            总梯度
+            Total gradient
         """
-        # 吸引梯度（指向目标）
+        # Attractive gradient (pointing to goal)
         att_grad = -self._attractive_gradient(q, q_goal)
         
-        # 排斥梯度（远离障碍物）
+        # Repulsive gradient (pointing away from obstacles)
         rep_grad = -self._repulsive_gradient(q)
         
         if reference :
-            # 参考路径梯度（引导跟随RRT*路径）
+            # Reference path gradient (guide following RRT* path)
             ref_grad = -self._reference_path_gradient(q)
-            # 总梯度 = 吸引 + 排斥 + 参考路径
+            # Total gradient = attractive + repulsive + reference path
             total_grad = att_grad + rep_grad + ref_grad
         else:
             total_grad = att_grad + rep_grad
         
-        # 归一化梯度
+        # Normalize gradient
         norm = np.linalg.norm(total_grad)
-        if norm > 1e-6:  # 防止除以零
+        if norm > 1e-6:  # Prevent division by zero
             total_grad = total_grad / norm
         
         return total_grad
     
     
     def plan_next_step(self, current_config: List[float], goal_config: List[float], reference: bool) -> Tuple[List[float], float]:
-        """计算从当前位置出发的下一个最佳步骤
+        """Calculate the next best step from the current position
         
-        这个方法更适合动态环境，只关注当前的局部最优方向
+        This method is more suitable for dynamic environments, focusing only on the current local optimal direction
         
         Args:
-            current_config: 当前关节配置
-            goal_config: 目标关节配置
-            reference: 是否有参考轨迹
+            current_config: Current joint configuration
+            goal_config: Goal joint configuration
+            reference: Whether there is a reference trajectory
             
         Returns:
-            元组 (下一步关节配置, 到目标的距离)
+            Tuple (next joint configuration, distance to goal)
         """
         q_current = np.array(current_config)
         q_goal = np.array(goal_config)
         
-        # 计算梯度方向
+        # Calculate gradient direction
         gradient = self._total_gradient(q_current, q_goal,reference)
         
-        # 根据梯度更新位置
+        # Update position based on gradient
         q_new = q_current + self.step_size * gradient
         
-        # 强制保持在关节限制内
+        # Force within joint limits
         for j in range(self.dimension):
             q_new[j] = max(self.robot.lower_limits[j], min(self.robot.upper_limits[j], q_new[j]))
         
-        # 检查是否无碰撞，如果有碰撞则尝试只使用排斥力
+        # Check if collision free, if not try using only repulsive force
         if not self._is_collision_free(q_new):
             rep_grad = -self._repulsive_gradient(q_current)
             norm_rep = np.linalg.norm(rep_grad)
@@ -351,25 +351,25 @@ class PotentialFieldPlanner:
                 rep_grad = rep_grad / norm_rep
                 q_new = q_current + self.step_size * rep_grad
                 
-                # 强制保持在关节限制内
+                # Force within joint limits
                 for j in range(self.dimension):
                     q_new[j] = max(self.robot.lower_limits[j], min(self.robot.upper_limits[j], q_new[j]))
                 
-                # 如果仍然有碰撞，返回当前位置
+                # If still collision, return current position
                 if not self._is_collision_free(q_new):
                     q_new = q_current
         
-        # 计算到目标的距离
+        # Calculate distance to goal
         ee_pos, _ = self._get_current_ee_pose(q_new.tolist())
         goal_ee_pos, _ = self._get_current_ee_pose(goal_config)
         cost = np.linalg.norm(ee_pos - goal_ee_pos)
         
-        # 可视化这一步
+        # Visualize this step
         start_ee, _ = self._get_current_ee_pose(current_config)
         end_ee, _ = self._get_current_ee_pose(q_new.tolist())
         
         debug_id = p.addUserDebugLine(
-            start_ee, end_ee, [1, 0, 1], 2, 0  # 紫色线表示势场路径
+            start_ee, end_ee, [1, 0, 1], 2, 0  # Purple line represents potential field path
         )
         
         self.debug_lines.append(debug_id)
@@ -377,18 +377,18 @@ class PotentialFieldPlanner:
         return q_new.tolist(), cost
     
     def clear_visualization(self) -> None:
-        """清除路径可视化"""
+        """Clear path visualization"""
         for debug_id in self.debug_lines:
             p.removeUserDebugItem(debug_id)
         self.debug_lines = []
     
     def set_reference_path(self, reference_path: List[List[float]]) -> None:
-        """设置参考路径（用于RRT*和势场法结合）
+        """Set reference path (for RRT* and potential field method combination)
         
         Args:
-            reference_path: RRT*生成的参考路径
+            reference_path: Reference path generated by RRT*
         """
         self.reference_path = reference_path
-        print(f"设置参考路径，包含 {len(reference_path)} 个点")
+        print(f"Set reference path, containing {len(reference_path)} points")
     
     

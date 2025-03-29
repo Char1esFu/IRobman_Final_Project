@@ -43,7 +43,7 @@ class GraspGeneration:
         table_height = sim.robot.pos[2] + 0.01
         
         grasp_points = []
-        grasp_directions = []  # 存储抓取方向（旋转矩阵）
+        grasp_directions = []  # save the grasp direction
         
         obb_dims = max_point_rotated - min_point_rotated
         # height_threshold = 0.15  # 15 centimeters
@@ -52,10 +52,10 @@ class GraspGeneration:
         y_size = obb_dims[1]
         z_size = obb_dims[2]
               
-        bbox_x_axis = rotation_matrix[:, 0]  # Bounding box的X轴方向
-        bbox_y_axis = rotation_matrix[:, 1]  # Bounding box的Y轴方向
+        bbox_x_axis = rotation_matrix[:, 0]  # X axis of the Bounding box
+        bbox_y_axis = rotation_matrix[:, 1]  # Y axis of the Bounding box
         
-        # 确定短边和长边对应的轴
+        # determine the short axis and long axis
         if x_size < y_size:
             short_axis = bbox_x_axis
             long_axis = bbox_y_axis
@@ -63,58 +63,58 @@ class GraspGeneration:
             short_axis = bbox_y_axis
             long_axis = bbox_x_axis
               
-        # 在bounding box内均匀采样位置
+        # sample the position in the bounding box
         for idx in range(num_grasps):
             rotated_coords = np.zeros(3)
             rotated_coords[0] = np.random.uniform(min_point_rotated[0], max_point_rotated[0])
             rotated_coords[1] = np.random.uniform(min_point_rotated[1], max_point_rotated[1])
             rotated_coords[2] = np.random.uniform(min_point_rotated[2], max_point_rotated[2])
             
-            # 将采样点从旋转坐标系转回世界坐标系
+            # convert the sampled point from the rotated coordinate system to the world coordinate system
             grasp_center = np.dot(rotated_coords, rotation_matrix.T) + center_rotated
             
-            # 抓取点不低于桌面高度
+            # the grasp point is not lower than the table height
             grasp_center[2] = max(grasp_center[2], table_height)
             
              
-            # Z轴垂直向下
+            # Z axis is vertical downward
             grasp_z_axis = np.array([0, 0, -1])
             
-            # X轴（爪子厚度方向）使用长边
+            # X axis (the thickness direction of the gripper) uses the long axis
             grasp_x_axis = long_axis
             
-            # Y轴（爪子开合方向）使用短边
+            # Y axis (the opening direction of the gripper) uses the short axis
             grasp_y_axis = short_axis
 
-            # 确保坐标系方向正确
+            # ensure the coordinate system direction is correct
             if np.dot(np.cross(grasp_x_axis, grasp_y_axis), grasp_z_axis) < 0:
                 grasp_y_axis = -grasp_y_axis
     
-            # 构建旋转矩阵
+            # build the rotation matrix
             R = np.column_stack((grasp_x_axis, grasp_y_axis, grasp_z_axis))
             grasp_center = grasp_center - 0.05 * grasp_z_axis
-            # # 保存旋转矩阵用于可视化
+            # # save the rotation matrix for visualization
             # grasp_directions.append(R)
             
-            # 将抓取姿态添加到结果列表
+            # add the grasp pose to the result list
             grasp_poses_list.append((R, grasp_center))
         
-        # # 定义采样点轴的长度和颜色
-        # axis_length = 0.05  # 坐标轴长度，单位米
-        # x_color = [1, 0, 0]  # 红色表示X轴（爪子厚度方向）
-        # y_color = [0, 1, 0]  # 绿色表示Y轴（爪子开合方向）
-        # z_color = [0, 0, 1]  # 蓝色表示Z轴（爪子朝向）
+        # # define the length of the sampling point axis and color
+        # axis_length = 0.05  # axis length
+        # x_color = [1, 0, 0]  # x axis red
+        # y_color = [0, 1, 0]  # y axis green
+        # z_color = [0, 0, 1]  # z axis blue
         
         # for i, (point, direction) in enumerate(zip(grasp_points, grasp_directions)):
-        #     # 使用红色小球表示抓取点
+        #     # use the red sphere to represent the grasp point
         #     p.addUserDebugPoints([point], [[1, 0, 0]], pointSize=5, lifeTime=0)
             
-        #     # 提取三个轴的方向向量
+        #     # extract the direction vectors of the three axes
         #     x_axis = direction[:, 0] * axis_length
         #     y_axis = direction[:, 1] * axis_length
         #     z_axis = direction[:, 2] * axis_length
             
-        #     # 画出三个坐标轴
+        #     # draw the three axes
         #     p.addUserDebugLine(point, np.array(point) + x_axis, x_color, lineWidth=2, lifeTime=0)
         #     p.addUserDebugLine(point, np.array(point) + y_axis, y_color, lineWidth=2, lifeTime=0)
         #     p.addUserDebugLine(point, np.array(point) + z_axis, z_color, lineWidth=2, lifeTime=0)
@@ -199,7 +199,7 @@ class GraspGeneration:
                                                                                           alpha=0.016)
         
         obj_triangle_mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(obj_triangle_mesh)
-        scene = o3d.t.geometry.RaycastingScene()#使用 Open3D 的张量模块（o3d.t） 创建一个用于 光线投射（Raycasting） 的 3D 场景对象。创建的 scene 变量是一个 可以放入三角网格、点云等物体 的 3D 场景。可以在这个场景中发射光线（ray），去检测：光线是否命中了物体，命中点的坐标、法向量，与物体的距离等信息
+        scene = o3d.t.geometry.RaycastingScene()
         scene.add_triangles(obj_triangle_mesh_t)
 
         hand_width = np.linalg.norm(left_center-right_center)
@@ -212,17 +212,16 @@ class GraspGeneration:
         
         # ===== Calculate gripper width direction =====
         print("Calculating gripper width direction...")
-        # Calculate vector in gripper width direction (perpendicular to both ray_direction and finger_vec)
+        # Calculate vector in gripper width direction
         # First calculate finger_vec direction in world coordinates
         world_finger_vec = rotation_matrix.dot(finger_vec)
-        # Calculate width direction vector (cross product gives vector perpendicular to both vectors)
+        # Calculate width direction vector
         width_direction = np.cross(ray_direction, world_finger_vec)
-        # Normalize
         width_direction = width_direction / np.linalg.norm(width_direction)
         
         # Define width direction parameters
         width_planes = 1  # Number of planes on each side in width direction
-        width_offset = 0.01  # Offset between planes (meters)
+        width_offset = 0.01  # gripper thickness 0.02
         
         # ===== Generate multiple parallel ray planes =====
         print("Generating multiple parallel ray planes...")
@@ -269,7 +268,7 @@ class GraspGeneration:
                     end.tolist(), 
                     lineColorRGB=[1, 0, 0],  # Red
                     lineWidth=1,
-                    lifeTime=0  # Disappear after 5 seconds
+                    lifeTime=0  # won't disappear
                 )
                 debug_lines.append(line_id)
         
@@ -337,16 +336,14 @@ class GraspGeneration:
         containment_ratio = rays_hit / total_rays
         print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{total_rays})")
         
-        # Calculate distance from grasp center to object center
         grasp_center = (left_center + right_center) / 2
         
-        # Calculate total distance in 3D space
         distance_to_center = np.linalg.norm(grasp_center - object_center)
         
         # Calculate distance score (closer distance gives higher score)
         center_score = np.exp(-distance_to_center**2 / (2 * 0.05**2))
       
-        # Incorporate both distance scores into final quality score, giving higher weight to horizontal distance
+        # Incorporate both distance scores into final quality score
         final_quality = 0.1 * containment_ratio + 0.1 * center_score + 80 * (1-np.exp(-max_interception_depth_score * 1000))
         
         print(f"Grasp center: {grasp_center}")
@@ -371,7 +368,6 @@ class GraspGeneration:
             pose2_orn: Final grasp orientation (quaternion)
             axis_length: Coordinate axis length
         """
-        # Get rotation matrix from quaternion
         pose1_rot = np.array(p.getMatrixFromQuaternion(pose1_orn)).reshape(3, 3)
         pose2_rot = np.array(p.getMatrixFromQuaternion(pose2_orn)).reshape(3, 3)
         
