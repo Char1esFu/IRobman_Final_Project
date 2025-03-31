@@ -105,7 +105,7 @@ Since the objects are placed on the flat table, we use the point cloud of the ob
 \section{Task 2: Control}
 \noindent File: \code{src/ik\_solver/ik\_solver.py}
 
-Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet. Not that it will cause problems, but we explored the possibility of using shadow client to work around, meaning we compute IK in the shadow client and then send the joint angles to another client that's been used in pybullet.
+Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet, which results in extremely fast arm movements during iterations. Not that it will cause problems, but we explored the possibility of using shadow client to work around, meaning we compute IK in the shadow client using p.DIRECT(without GUI) and then send the joint angles to another client that's been used in pybullet.
 
 There are limitations, solving for long trajectory will result in large position and orientation error, which is why we use hard-coded joint angles of the end point of the trajectory in the first stage of planning. Details will be explained later.
 
@@ -154,7 +154,7 @@ Files:
 \item \code{src/path\_planning/simple\_planning.py}
 \end{itemize}
 
-Due to the aforementioned limitation of IK solver, solving for the end of long trajectory has some unexpected behaviours. The end of the trajectory would deviate from desired position. So we first move the gripper to a hard-coded pose. And then plan the final movement with RRT* as global planner and artificial potential field as local planner. We've also achieved a planner with pure hard-coded position as a comparison.
+In light of the aforementioned limitation of IK solver, solving for the end of long trajectory has some unexpected behaviours. The end of the trajectory would deviate from desired position. So we first move the gripper to a hard-coded pose. And then plan the final movement with RRT* as global planner and artificial potential field as local planner. We've also achieved a planner with pure hard-coded position as a comparison.
 
 RRT* is achieved in joint space, so that the initial planning will also avoid collision between the obstacles and each joint of the robot arm. The global trajectory will provide an attractive force to the end effector during local planning. In this case potential field method considers total gradient from 3 types of sources: repulsive force from 2 obstacles, attractive force from end position, and attractive force from the trajectory. The effective radius of repulsive force has been increased upon size of the obstacles, so that larger objects won't collide with red ball obstacles as well.
 
@@ -170,7 +170,7 @@ Grasp sampling is set to 2000, so it might be slow to test on other machines.
 
 \section{Contributions}
 
-\noindent\textbf{Cong Fu:} point clouds collection, bounding box, ik solver, obstacle tracker, grasp containment metrics, global planning, project integration
+\noindent\textbf{Cong Fu:} point clouds collection, bounding box, ik solver, obstacle tracker, grasp sampling, grasp containment metrics, global planning, project integration
 
 \noindent\textbf{Deepesh Padala:} local planning, point cloud fusion, grasp mesh creation, grasp collision detection
 
