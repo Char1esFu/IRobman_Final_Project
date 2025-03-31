@@ -105,7 +105,7 @@ Since the objects are placed on the flat table, we use the point cloud of the ob
 \section{Task 2: Control}
 \noindent File: \code{src/ik\_solver/ik\_solver.py}
 
-Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet, which results in extremely fast arm movements during iterations. Not that it will cause problems, but we explored the possibility of using shadow client to work around, meaning we compute IK in the shadow client using p.DIRECT(without GUI) and then send the joint angles to another client that's been used in pybullet.
+Numerical inverse kinematics is used to get the joint angles of the robot to reach the target position. We use damped least squares method here. Joint limitations are acquired directly from URDF file from pybullet. Due to the simulation environment, solving process will force the arm to move along with iterations in pybullet, which results in extremely fast arm movements during iterations. Not that it will cause problems, but we explored the possibility of using shadow client to work around, meaning we compute IK in the shadow client using p.DIRECT(without GUI) and then send the joint angles to another client that's been used in pybullet.
 
 There are limitations, solving for long trajectory will result in large position and orientation error, which is why we use hard-coded joint angles of the end point of the trajectory in the first stage of planning. Details will be explained later.
 
