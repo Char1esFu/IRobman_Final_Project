@@ -557,7 +557,7 @@ class PlanningExecutor:
                 K_rep=100.0,
                 goal_threshold=0.2,
                 collision_check_step=0.05,
-                reference_path_weight=0.7
+                reference_path_weight=0.2
             )
             
             # Set global reference path
