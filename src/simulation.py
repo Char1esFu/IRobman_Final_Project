@@ -67,6 +67,13 @@ class Simulation:
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         # starting the simulation
         self.exp_settings = exp_settings
+        
+        # increase simulation speed
+        p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0)
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI,0)
+        p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW,0)
+        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW,0)
+        p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW,0)
 
     def reset(self, new_obj_name: Optional[str] = None):
         if new_obj_name:
@@ -87,6 +94,8 @@ class Simulation:
     def check_goal(self):
         min_lim, max_lim = self.goal._get_goal_lims()
         obj_ids = p.getOverlappingObjects(min_lim, max_lim)
+        if obj_ids is None:
+            return False
         obj_idx = [ob[0] for ob in obj_ids]
         if self.object.id in obj_idx:
             return True
